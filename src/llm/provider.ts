@@ -1,0 +1,46 @@
+export interface Session {
+  id: string;
+  chatId: string;
+  provider: string;
+}
+
+export interface MediaAttachment {
+  type: 'image' | 'document' | 'video' | 'audio' | 'gif';
+  data: Buffer | string;
+  mimeType: string;
+  filename?: string;
+}
+
+export interface MessageInput {
+  text?: string;
+  media?: MediaAttachment[];
+  context?: string;
+}
+
+export interface ToolResult {
+  tool: string;
+  result: unknown;
+}
+
+export interface MessageOutput {
+  text?: string;
+  media?: MediaAttachment[];
+  toolResults?: ToolResult[];
+}
+
+export class LLMError extends Error {
+  constructor(message: string, public readonly cause?: Error) {
+    super(message);
+    this.name = 'LLMError';
+  }
+}
+
+export interface LLMProvider {
+  createSession(chatId: string, systemPrompt: string): Promise<Session>;
+  resumeSession(sessionId: string): Promise<Session>;
+  destroySession(sessionId: string): Promise<void>;
+  sendMessage(session: Session, message: MessageInput): Promise<MessageOutput>;
+  supportsTools(): boolean;
+  supportsMedia(): boolean;
+  supportsResume(): boolean;
+}
