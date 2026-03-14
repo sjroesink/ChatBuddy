@@ -1,0 +1,37 @@
+import 'dotenv/config';
+
+export interface Config {
+  telegramBotToken: string;
+  ownerUserId: number;
+  llmProvider: 'claude-code' | 'openai' | 'ollama';
+  claudeModel?: string;
+  tenorApiKey?: string;
+  openaiApiKey?: string;
+  databasePath: string;
+}
+
+export function loadConfig(): Config {
+  const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!telegramBotToken) {
+    throw new Error('TELEGRAM_BOT_TOKEN is required');
+  }
+
+  const ownerUserIdStr = process.env.OWNER_USER_ID;
+  if (!ownerUserIdStr) {
+    throw new Error('OWNER_USER_ID is required');
+  }
+  const ownerUserId = parseInt(ownerUserIdStr, 10);
+  if (isNaN(ownerUserId)) {
+    throw new Error('OWNER_USER_ID must be a number');
+  }
+
+  return {
+    telegramBotToken,
+    ownerUserId,
+    llmProvider: (process.env.LLM_PROVIDER as Config['llmProvider']) || 'claude-code',
+    claudeModel: process.env.CLAUDE_MODEL || undefined,
+    tenorApiKey: process.env.TENOR_API_KEY || undefined,
+    openaiApiKey: process.env.OPENAI_API_KEY || undefined,
+    databasePath: process.env.DATABASE_PATH || './data/bot.db',
+  };
+}
