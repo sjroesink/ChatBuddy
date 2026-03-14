@@ -39,10 +39,23 @@ interface LLMProvider {
   createSession(chatId: string, systemPrompt: string): Promise<Session>
   resumeSession(sessionId: string): Promise<Session>
   destroySession(sessionId: string): Promise<void>
-  sendMessage(session: Session, message: MessageInput): Promise<MessageOutput>
+  sendMessage(session: Session, message: MessageInput): Promise<MessageOutput>  // throws LLMError on failure
   supportsTools(): boolean
   supportsMedia(): boolean
   supportsResume(): boolean
+}
+
+interface Session {
+  id: string              // provider-specific session ID
+  chatId: string          // Telegram chat ID
+  provider: string        // 'claude-code' | 'openai' | 'ollama'
+}
+
+interface MediaAttachment {
+  type: 'image' | 'document' | 'video' | 'audio' | 'gif'
+  data: Buffer | string   // Buffer for binary, string for URLs or file paths
+  mimeType: string        // e.g., 'image/png', 'application/pdf'
+  filename?: string
 }
 
 interface MessageInput {
@@ -80,6 +93,8 @@ Each chatId gets its own FIFO queue. Messages are processed sequentially — onl
 
 **Timeout**: If an LLM call takes longer than 120 seconds, it is cancelled, the user is notified ("Antwoord duurde te lang, probeer het opnieuw"), and the queue continues with the next message.
 
+**Error handling**: If `sendMessage` throws (process crash, malformed response, OOM), the error is logged, the user is notified ("Er ging iets mis, probeer het opnieuw"), and the queue continues. No automatic retry — the user can simply send their message again.
+
 ### Routing Modes (configurable per chat)
 
 | Mode | Behavior | Default for |
@@ -99,7 +114,7 @@ Each chatId gets its own FIFO queue. Messages are processed sequentially — onl
   [14:23] @jan: Ik denk dat...
   [14:24] @peter: Maar dan...
   ```
-  This prevents excessive LLM calls in busy group chats. The cooldown is configurable per chat via admin settings.
+  If more than 20 messages arrive during a single cooldown window, the oldest messages beyond 20 are dropped (not sent to the LLM) but still stored in the messages table for history access. This prevents excessive LLM calls in busy group chats. The cooldown is configurable per chat via admin settings.
 
 ### Custom Prompt
 
@@ -132,7 +147,7 @@ Configurable per chat:
 |---------|----------|
 | `clean` | Clean slate, no context (default) |
 | `recent_messages` | Pass last N Telegram messages to new session (N configurable) |
-| `summary` | Old session creates a summary first, passed to the new session. The bot sends a final prompt ("Vat deze conversatie samen in maximaal 500 woorden") to the old session before destroying it. If the old session cannot be resumed, falls back to `recent_messages` mode. |
+| `summary` | Old session creates a summary first, passed to the new session. The bot sends a final prompt ("Vat deze conversatie samen in maximaal 500 woorden") to the old session before destroying it. If the old session cannot be resumed, falls back to `recent_messages` mode using the chat's configured `recent_messages_count`. |
 
 ### Chat History Access for the LLM
 
@@ -325,7 +340,9 @@ TelegramAgent/
 │   │   ├── database.ts
 │   │   └── migrations/
 │   ├── tools/
+│   │   ├── mcp-server.ts          # MCP server exposing all tools to Claude
 │   │   ├── telegram-history.ts
+│   │   ├── admin-management.ts
 │   │   └── gif-search.ts
 │   └── config.ts
 ├── Dockerfile
