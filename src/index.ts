@@ -1,6 +1,8 @@
 import { loadConfig } from './config.js';
 import { Database } from './db/database.js';
+import { LLMProvider } from './llm/provider.js';
 import { ClaudeCodeProvider } from './llm/providers/claude-code.js';
+import { OpenAIProvider } from './llm/providers/openai.js';
 import { SessionManager } from './llm/session.js';
 import { AdminService } from './admin/admin.js';
 import { createBot } from './bot/bot.js';
@@ -35,13 +37,29 @@ async function main() {
   fs.mkdirSync(path.dirname(mcpConfigPath), { recursive: true });
   fs.writeFileSync(mcpConfigPath, JSON.stringify(mcpConfig, null, 2));
 
-  const provider = new ClaudeCodeProvider({
-    model: config.claudeModel,
-    mcpConfigPath,
-  });
+  const adminService = new AdminService(db, config.ownerUserId);
+
+  let provider: LLMProvider;
+  if (config.llmProvider === 'openai') {
+    if (!config.openaiApiKey) {
+      throw new Error('OPENAI_API_KEY is required when LLM_PROVIDER=openai');
+    }
+    provider = new OpenAIProvider({
+      apiKey: config.openaiApiKey,
+      model: config.openaiModel,
+      db,
+      adminService,
+      tenorApiKey: config.tenorApiKey,
+    });
+    console.log(`OpenAI model: ${config.openaiModel}`);
+  } else {
+    provider = new ClaudeCodeProvider({
+      model: config.claudeModel,
+      mcpConfigPath,
+    });
+  }
 
   const sessionManager = new SessionManager(provider, db);
-  const adminService = new AdminService(db, config.ownerUserId);
   const bot = createBot(config, db, provider, sessionManager, adminService);
 
   // Graceful shutdown

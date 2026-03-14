@@ -5,6 +5,7 @@ export interface Config {
   ownerUserId: number;
   llmProvider: 'claude-code' | 'openai' | 'ollama';
   claudeModel?: string;
+  openaiModel?: string;
   tenorApiKey?: string;
   openaiApiKey?: string;
   databasePath: string;
@@ -30,6 +31,7 @@ export function loadConfig(): Config {
     ownerUserId,
     llmProvider: (process.env.LLM_PROVIDER as Config['llmProvider']) || 'claude-code',
     claudeModel: process.env.CLAUDE_MODEL || undefined,
+    openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
     tenorApiKey: process.env.TENOR_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
     databasePath: process.env.DATABASE_PATH || './data/bot.db',

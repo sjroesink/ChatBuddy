@@ -114,6 +114,18 @@ export class Database {
 
       CREATE INDEX IF NOT EXISTS idx_messages_chat_date ON messages(chat_id, created_at);
 
+      CREATE TABLE IF NOT EXISTS conversation_messages (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id   TEXT NOT NULL,
+        role         TEXT NOT NULL,
+        content      TEXT,
+        tool_calls   TEXT,
+        tool_call_id TEXT,
+        created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_conv_session ON conversation_messages(session_id);
+
       CREATE TABLE IF NOT EXISTS chat_admins (
         chat_id   INTEGER NOT NULL REFERENCES chats(chat_id),
         user_id   INTEGER NOT NULL,
@@ -241,6 +253,24 @@ export class Database {
       'SELECT username FROM messages WHERE chat_id = ? AND user_id = ? AND username IS NOT NULL ORDER BY message_id DESC LIMIT 1'
     ).get(chatId, userId) as { username: string } | undefined;
     return row?.username;
+  }
+
+  // Conversation history for non-Claude providers (OpenAI, Ollama)
+  addConversationMessage(sessionId: string, role: string, content: string | null, toolCalls?: string, toolCallId?: string): void {
+    this.db.prepare(`
+      INSERT INTO conversation_messages (session_id, role, content, tool_calls, tool_call_id)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(sessionId, role, content, toolCalls ?? null, toolCallId ?? null);
+  }
+
+  getConversationHistory(sessionId: string): Array<{ role: string; content: string | null; tool_calls: string | null; tool_call_id: string | null }> {
+    return this.db.prepare(
+      'SELECT role, content, tool_calls, tool_call_id FROM conversation_messages WHERE session_id = ? ORDER BY id ASC'
+    ).all(sessionId) as Array<{ role: string; content: string | null; tool_calls: string | null; tool_call_id: string | null }>;
+  }
+
+  clearConversationHistory(sessionId: string): void {
+    this.db.prepare('DELETE FROM conversation_messages WHERE session_id = ?').run(sessionId);
   }
 
   close(): void {
