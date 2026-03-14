@@ -44,3 +44,5 @@ export function loadConfig(): Config {
     databasePath: process.env.DATABASE_PATH || './data/bot.db',
   };
 }
+
+

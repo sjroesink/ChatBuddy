@@ -85,17 +85,33 @@ async function main() {
   const sessionManager = new SessionManager(provider, db);
   const bot = createBot(config, db, provider, sessionManager, adminService);
 
-  // Graceful shutdown
-  const shutdown = () => {
+  // Graceful shutdown — handle tsx watch restarts
+  let shuttingDown = false;
+  const shutdown = async () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     console.log('Shutting down...');
     bot.stop();
     db.close();
+    // Give Telegram API time to release the polling connection
+    await new Promise((r) => setTimeout(r, 500));
     process.exit(0);
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  process.on('SIGHUP', shutdown);
+
+  await bot.api.setMyCommands([
+    { command: 'help', description: 'Toon beschikbare commando\'s' },
+    { command: 'newsession', description: 'Start een nieuwe sessie' },
+    { command: 'setmode', description: 'Stel de routing modus in' },
+    { command: 'setprompt', description: 'Stel de custom prompt in' },
+    { command: 'setprovider', description: 'Bekijk/wissel LLM provider' },
+    { command: 'settings', description: 'Toon huidige instellingen' },
+  ]);
 
   await bot.start({
+    drop_pending_updates: true,
     onStart: (botInfo) => {
       console.log(`Bot started as @${botInfo.username}`);
     },

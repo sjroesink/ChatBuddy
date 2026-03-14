@@ -43,8 +43,8 @@ export function createBot(
           username: ctx.from?.username ?? null,
           display_name: ctx.from?.first_name ?? null,
           text: ctx.message.text ?? ctx.message.caption ?? null,
-          has_media: !!(ctx.message.photo || ctx.message.document || ctx.message.voice || ctx.message.video),
-          media_type: ctx.message.photo ? 'photo' : ctx.message.document ? 'document' : ctx.message.voice ? 'voice' : ctx.message.video ? 'video' : null,
+          has_media: !!(ctx.message.photo || ctx.message.document || ctx.message.voice || ctx.message.video || ctx.message.animation || ctx.message.sticker),
+          media_type: ctx.message.photo ? 'photo' : ctx.message.document ? 'document' : ctx.message.voice ? 'voice' : ctx.message.video ? 'video' : ctx.message.animation ? 'animation' : ctx.message.sticker ? 'sticker' : null,
           reply_to: ctx.message.reply_to_message?.message_id ?? null,
         });
       }
@@ -217,7 +217,10 @@ export function createBot(
 
     // Handle LLM-generated keyboard callbacks (prefixed with 'llm:')
     if (data.startsWith('llm:')) {
-      const selectedOption = data.slice('llm:'.length);
+      // Format: llm:<index>:<label>
+      const rest = data.slice('llm:'.length);
+      const colonIdx = rest.indexOf(':');
+      const selectedOption = colonIdx >= 0 ? rest.slice(colonIdx + 1) : rest;
       await ctx.answerCallbackQuery();
 
       // Update the message to show the selection
@@ -325,6 +328,43 @@ export function createBot(
           }
         }
 
+        // Handle animations (GIFs)
+        if (ctx.message && 'animation' in ctx.message && ctx.message.animation) {
+          const anim = ctx.message.animation;
+          const file = await ctx.api.getFile(anim.file_id);
+          if (file.file_path) {
+            const url = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+            messageInput.media = [{ type: 'image', data: url, mimeType: anim.mime_type || 'video/mp4', filename: anim.file_name || 'animation.mp4' }];
+            if (!messageInput.text || messageInput.text === text) {
+              messageInput.text = (messageInput.text || '') + `\n[Gebruiker stuurde een GIF: ${anim.file_name || 'animation'}]`;
+            }
+          }
+        }
+
+        // Handle video
+        if (ctx.message && 'video' in ctx.message && ctx.message.video) {
+          const video = ctx.message.video;
+          const file = await ctx.api.getFile(video.file_id);
+          if (file.file_path) {
+            const url = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+            messageInput.text = (messageInput.text || '') + `\n[Gebruiker stuurde een video: ${video.file_name || 'video'}, ${video.duration}s]`;
+          }
+        }
+
+        // Handle stickers
+        if (ctx.message && 'sticker' in ctx.message && ctx.message.sticker) {
+          const sticker = ctx.message.sticker;
+          messageInput.text = (messageInput.text || '') + `\n[Gebruiker stuurde een sticker: ${sticker.emoji || ''} "${sticker.set_name || 'unknown set'}"]`;
+          // If sticker has a thumbnail, send it as image for vision
+          if (sticker.thumbnail) {
+            const file = await ctx.api.getFile(sticker.thumbnail.file_id);
+            if (file.file_path) {
+              const url = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+              messageInput.media = [{ type: 'image', data: url, mimeType: 'image/webp' }];
+            }
+          }
+        }
+
         // Handle voice messages
         if (ctx.message && 'voice' in ctx.message && ctx.message.voice) {
           if (!config.openaiApiKey) {
@@ -353,7 +393,9 @@ export function createBot(
 
         // Send text response
         if (response.text) {
-          const parts = splitMessage(response.text);
+          // Replace <br> tags with newlines — Telegram doesn't support <br>
+          const cleanedText = response.text.replace(/<br\s*\/?>/gi, '\n');
+          const parts = splitMessage(cleanedText);
           for (const part of parts) {
             await ctx.reply(part, { parse_mode: 'HTML' }).catch(async () => {
               // If HTML parsing fails, send as plain text
@@ -371,7 +413,8 @@ export function createBot(
                 const keyboard = new InlineKeyboard();
                 const cols = Math.min(kb.columns || 2, 4);
                 kb.options.forEach((opt, i) => {
-                  keyboard.text(opt, `llm:${opt}`);
+                  // Telegram callback data max 64 bytes — use index as callback, label as display
+                  keyboard.text(opt.slice(0, 40), `llm:${i}:${opt.slice(0, 50)}`);
                   if ((i + 1) % cols === 0 && i < kb.options.length - 1) {
                     keyboard.row();
                   }
@@ -426,6 +469,7 @@ function buildSystemPrompt(db: Database, chatId: number, botUsername: string): s
 - <a href="url">linktekst</a> voor links
 - <blockquote>citaat</blockquote> voor citaten
 - <tg-spoiler>spoiler</tg-spoiler> voor spoilers
+BELANGRIJK: Gebruik GEEN <br> tags — gebruik gewoon newlines voor regelovergangen. Telegram ondersteunt geen <br>.
 Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altijd de HTML-tags hierboven. Tekst zonder tags wordt gewoon als platte tekst weergegeven. Zorg dat je HTML correct is — open tags moeten altijd gesloten worden. Escape speciale tekens in gewone tekst: gebruik &amp; voor &, &lt; voor <, &gt; voor >.`);
 
   if (chat?.routing_mode === 'autonomous') {
@@ -438,7 +482,7 @@ Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altij
 
   parts.push('\nAls iemand je vraagt om een admin toe te voegen, te verwijderen, of de adminlijst te tonen, gebruik dan de admin_management tool.');
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
-  parts.push('Als je actuele informatie nodig hebt (nieuws, feiten, recente gebeurtenissen), gebruik dan de web_search tool. Gebruik dit altijd wanneer de gebruiker vraagt naar recent nieuws of informatie die na je trainingsdata kan zijn veranderd.');
+  parts.push('BELANGRIJK: Je hebt een web_search tool beschikbaar. Als de gebruiker vraagt naar nieuws, actuele gebeurtenissen, recente feiten, of ENIGE informatie die recent kan zijn veranderd, MOET je ALTIJD EERST de web_search tool gebruiken voordat je antwoord geeft. Zeg NOOIT dat je geen toegang hebt tot het internet — je hebt web_search.');
   parts.push('Als je de gebruiker een keuze wilt aanbieden, gebruik dan de send_keyboard tool om een inline keyboard te sturen met opties. De gebruiker klikt op een optie en het resultaat wordt als bericht naar je teruggestuurd.');
 
   return parts.join('\n\n');
