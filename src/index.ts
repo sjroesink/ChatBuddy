@@ -30,6 +30,7 @@ async function main() {
           DATABASE_PATH: config.databasePath,
           OWNER_USER_ID: String(config.ownerUserId),
           TENOR_API_KEY: config.tenorApiKey || '',
+          TAVILY_API_KEY: config.tavilyApiKey || '',
         },
       },
     },
@@ -52,6 +53,7 @@ async function main() {
         db,
         adminService,
         tenorApiKey: config.tenorApiKey,
+        tavilyApiKey: config.tavilyApiKey,
       });
       console.log(`OpenAI model: ${config.openaiModel}`);
       break;
@@ -66,6 +68,7 @@ async function main() {
         db,
         adminService,
         tenorApiKey: config.tenorApiKey,
+        tavilyApiKey: config.tavilyApiKey,
       });
       console.log(`Claude API model: ${config.claudeApiModel}`);
       break;

@@ -5,6 +5,7 @@ import { Database } from '../../db/database.js';
 import { handleTelegramHistory } from '../../tools/telegram-history.js';
 import { handleAdminManagement } from '../../tools/admin-management.js';
 import { handleGifSearch } from '../../tools/gif-search.js';
+import { handleWebSearch } from '../../tools/web-search.js';
 import { AdminService } from '../../admin/admin.js';
 
 export interface ClaudeAPIProviderConfig {
@@ -13,6 +14,7 @@ export interface ClaudeAPIProviderConfig {
   db: Database;
   adminService: AdminService;
   tenorApiKey?: string;
+  tavilyApiKey?: string;
 }
 
 const TOOL_DEFINITIONS: Anthropic.Tool[] = [
@@ -71,6 +73,18 @@ const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['message', 'options'],
     },
   },
+  {
+    name: 'web_search',
+    description: 'Search the web for current information. Use this when you need up-to-date information, news, or facts that may not be in your training data.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+        max_results: { type: 'number', description: 'Maximum number of results (default 5, max 10)' },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 export class ClaudeAPIProvider implements LLMProvider {
@@ -79,6 +93,7 @@ export class ClaudeAPIProvider implements LLMProvider {
   private db: Database;
   private adminService: AdminService;
   private tenorApiKey?: string;
+  private tavilyApiKey?: string;
 
   constructor(config: ClaudeAPIProviderConfig) {
     this.client = new Anthropic({ apiKey: config.apiKey });
@@ -86,6 +101,7 @@ export class ClaudeAPIProvider implements LLMProvider {
     this.db = config.db;
     this.adminService = config.adminService;
     this.tenorApiKey = config.tenorApiKey;
+    this.tavilyApiKey = config.tavilyApiKey;
   }
 
   async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult> {
@@ -304,6 +320,8 @@ export class ClaudeAPIProvider implements LLMProvider {
         return handleGifSearch(this.tenorApiKey, args as any);
       case 'send_keyboard':
         return { success: true, message: 'Keyboard will be sent to user.' };
+      case 'web_search':
+        return handleWebSearch(this.tavilyApiKey, args as any);
       default:
         return { error: `Unknown tool: ${name}` };
     }

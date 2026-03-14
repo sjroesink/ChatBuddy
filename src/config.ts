@@ -10,6 +10,7 @@ export interface Config {
   anthropicApiKey?: string;
   openaiModel?: string;
   tenorApiKey?: string;
+  tavilyApiKey?: string;
   openaiApiKey?: string;
   databasePath: string;
 }
@@ -38,6 +39,7 @@ export function loadConfig(): Config {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
     tenorApiKey: process.env.TENOR_API_KEY || undefined,
+    tavilyApiKey: process.env.TAVILY_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,
     databasePath: process.env.DATABASE_PATH || './data/bot.db',
   };

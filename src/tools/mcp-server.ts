@@ -6,10 +6,12 @@ import { AdminService } from '../admin/admin.js';
 import { handleTelegramHistory } from './telegram-history.js';
 import { handleAdminManagement } from './admin-management.js';
 import { handleGifSearch } from './gif-search.js';
+import { handleWebSearch } from './web-search.js';
 
 const DB_PATH = process.env.DATABASE_PATH || './data/bot.db';
 const OWNER_ID = parseInt(process.env.OWNER_USER_ID || '0', 10);
 const TENOR_API_KEY = process.env.TENOR_API_KEY;
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
 
 const db = new Database(DB_PATH);
 const adminService = new AdminService(db, OWNER_ID);
@@ -73,6 +75,24 @@ server.registerTool(
   },
   async (params) => {
     const result = await handleGifSearch(TENOR_API_KEY, params);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  'web_search',
+  {
+    title: 'Web Search',
+    description: 'Search the web for current information. Use this when you need up-to-date information, news, or facts that may not be in your training data.',
+    inputSchema: z.object({
+      query: z.string().describe('Search query'),
+      max_results: z.number().min(1).max(10).default(5).describe('Maximum number of results'),
+    }),
+  },
+  async (params) => {
+    const result = await handleWebSearch(TAVILY_API_KEY, params);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
     };

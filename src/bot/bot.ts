@@ -438,6 +438,7 @@ Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altij
 
   parts.push('\nAls iemand je vraagt om een admin toe te voegen, te verwijderen, of de adminlijst te tonen, gebruik dan de admin_management tool.');
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
+  parts.push('Als je actuele informatie nodig hebt (nieuws, feiten, recente gebeurtenissen), gebruik dan de web_search tool. Gebruik dit altijd wanneer de gebruiker vraagt naar recent nieuws of informatie die na je trainingsdata kan zijn veranderd.');
   parts.push('Als je de gebruiker een keuze wilt aanbieden, gebruik dan de send_keyboard tool om een inline keyboard te sturen met opties. De gebruiker klikt op een optie en het resultaat wordt als bericht naar je teruggestuurd.');
 
   return parts.join('\n\n');
