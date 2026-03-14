@@ -260,8 +260,9 @@ export function createBot(
       }
 
       const time = new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
-      const username = ctx.from?.username || ctx.from?.first_name || 'Unknown';
-      buffer.messages.push({ username, text: messageText, time });
+      const displayName = ctx.from?.first_name || 'Unknown';
+      const username = ctx.from?.username || displayName;
+      buffer.messages.push({ username, text: messageText || `[${ctx.message.sticker ? 'sticker' : ctx.message.photo ? 'foto' : ctx.message.animation ? 'GIF' : 'media'}]`, time });
 
       // Drop oldest if > 20
       if (buffer.messages.length > 20) {
@@ -460,6 +461,13 @@ function buildSystemPrompt(db: Database, chatId: number, botUsername: string): s
   const parts: string[] = [];
 
   parts.push(`Je bent een AI assistent in een Telegram chat. Je botnaam is @${botUsername}.`);
+
+  // Add known group members from message history
+  const knownUsers = getKnownUsers(db, chatId);
+  if (knownUsers.length > 0) {
+    parts.push(`Bekende deelnemers in deze chat: ${knownUsers.map(u => u.username ? `@${u.username} (${u.displayName})` : u.displayName).join(', ')}`);
+  }
+
   parts.push('Je zit in een Telegram chat die mogelijk langer teruggaat dan je huidige sessie. Als je context nodig hebt van eerdere berichten, gebruik dan de telegram_history tool om gericht te zoeken in de chatgeschiedenis.');
 
   parts.push(`FORMATTING: Je berichten worden weergegeven in Telegram met HTML parse_mode. Gebruik HTML-tags voor opmaak:
@@ -473,7 +481,22 @@ BELANGRIJK: Gebruik GEEN <br> tags — gebruik gewoon newlines voor regelovergan
 Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altijd de HTML-tags hierboven. Tekst zonder tags wordt gewoon als platte tekst weergegeven. Zorg dat je HTML correct is — open tags moeten altijd gesloten worden. Escape speciale tekens in gewone tekst: gebruik &amp; voor &, &lt; voor <, &gt; voor >.`);
 
   if (chat?.routing_mode === 'autonomous') {
-    parts.push('Je bent in autonome modus. Je ontvangt alle berichten uit de chat. Reageer ALLEEN als je iets waardevols bij te dragen hebt. Als je niet wilt reageren, antwoord dan met een leeg bericht (geen tekst).');
+    parts.push(`Je bent in autonome modus in een groepschat. Je ontvangt ALLE berichten tussen de deelnemers.
+
+WANNEER WEL REAGEREN:
+- Als je direct wordt aangesproken of gevraagd
+- Als je een relevante, waardevolle bijdrage hebt aan het gesprek
+- Als iemand een vraag stelt die je kunt beantwoorden
+- Als de custom prompt aangeeft dat je je moet mengen
+
+WANNEER NIET REAGEREN (antwoord met leeg bericht):
+- Begroetingen tussen andere deelnemers ("Hey!", "Hoi", "Goedemorgen")
+- Sociale gesprekken waar jij niet bij betrokken bent
+- Als mensen tegen elkaar praten, niet tegen jou
+- Korte reacties of bevestigingen ("ok", "top", "haha")
+- Als je niets toe te voegen hebt
+
+Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelnemer, geen moderator. Gedraag je als een groepslid dat alleen praat als het iets te zeggen heeft.`);
   }
 
   if (chat?.custom_prompt) {
@@ -486,6 +509,21 @@ Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altij
   parts.push('Als je de gebruiker een keuze wilt aanbieden, gebruik dan de send_keyboard tool om een inline keyboard te sturen met opties. De gebruiker klikt op een optie en het resultaat wordt als bericht naar je teruggestuurd.');
 
   return parts.join('\n\n');
+}
+
+function getKnownUsers(db: Database, chatId: number): Array<{ username: string | null; displayName: string }> {
+  // Get distinct users from stored messages
+  const rows = db.getRecentMessages(chatId, 200);
+  const seen = new Map<number, { username: string | null; displayName: string }>();
+  for (const row of rows) {
+    if (row.user_id && !seen.has(row.user_id)) {
+      seen.set(row.user_id, {
+        username: row.username,
+        displayName: row.display_name || row.username || 'Unknown',
+      });
+    }
+  }
+  return Array.from(seen.values());
 }
 
 function escapeHtml(text: string): string {
