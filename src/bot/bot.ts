@@ -21,7 +21,12 @@ export function createBot(
   adminService: AdminService,
 ): Bot {
   const bot = new Bot(config.telegramBotToken);
-  const queue = new MessageQueue();
+  const queue = new MessageQueue(300_000); // 5 min timeout — Claude Code session init can be slow
+
+  // Global error handler to prevent crashes
+  bot.catch((err) => {
+    console.error('Unhandled bot error:', err.message);
+  });
   const autonomousBuffers = new Map<number, AutonomousBuffer>();
 
   // Store all messages middleware
@@ -114,8 +119,8 @@ export function createBot(
   });
 
   async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean): Promise<void> {
-    await queue.enqueue(chatId, async () => {
-      try {
+    try {
+      await queue.enqueue(chatId, async () => {
         await ctx.replyWithChatAction('typing');
 
         const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
@@ -196,15 +201,15 @@ export function createBot(
             }
           }
         }
-      } catch (error) {
-        console.error(`Error processing message for chat ${chatId}:`, error);
-        if (error instanceof Error && error.message.includes('timeout')) {
-          await ctx.reply('Antwoord duurde te lang, probeer het opnieuw.');
-        } else {
-          await ctx.reply('Er ging iets mis, probeer het opnieuw.');
-        }
+      });
+    } catch (error) {
+      console.error(`Error processing message for chat ${chatId}:`, error);
+      if (error instanceof Error && error.message.includes('timeout')) {
+        await ctx.reply('Antwoord duurde te lang, probeer het opnieuw.').catch(() => {});
+      } else {
+        await ctx.reply('Er ging iets mis, probeer het opnieuw.').catch(() => {});
       }
-    });
+    }
   }
 
   return bot;

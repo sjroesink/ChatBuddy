@@ -112,9 +112,11 @@ export class ClaudeCodeProvider implements LLMProvider {
 
   private runClaude(args: string[]): Promise<string> {
     return new Promise((resolve, reject) => {
+      console.error(`[claude-code] Running: claude ${args.map(a => a.length > 100 ? a.slice(0, 100) + '...' : a).join(' ')}`);
+      const startTime = Date.now();
+
       const proc = spawn('claude', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
       });
 
       let stdout = '';
@@ -124,6 +126,11 @@ export class ClaudeCodeProvider implements LLMProvider {
       proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
 
       proc.on('close', (code) => {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.error(`[claude-code] Exited with code ${code} after ${elapsed}s`);
+        if (stderr.trim()) {
+          console.error(`[claude-code] stderr: ${stderr.slice(0, 500)}`);
+        }
         if (code === 0) {
           resolve(stdout.trim());
         } else {
@@ -132,6 +139,7 @@ export class ClaudeCodeProvider implements LLMProvider {
       });
 
       proc.on('error', (err) => {
+        console.error(`[claude-code] Failed to spawn: ${err.message}`);
         reject(new Error(`Failed to spawn claude: ${err.message}`));
       });
     });
