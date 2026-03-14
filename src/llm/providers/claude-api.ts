@@ -6,6 +6,7 @@ import { handleTelegramHistory } from '../../tools/telegram-history.js';
 import { handleAdminManagement } from '../../tools/admin-management.js';
 import { handleGifSearch } from '../../tools/gif-search.js';
 import { handleWebSearch } from '../../tools/web-search.js';
+import { handleChatSettings } from '../../tools/chat-settings.js';
 import { AdminService } from '../../admin/admin.js';
 
 export interface ClaudeAPIProviderConfig {
@@ -13,6 +14,7 @@ export interface ClaudeAPIProviderConfig {
   model?: string;
   db: Database;
   adminService: AdminService;
+  ownerUserId: number;
   tenorApiKey?: string;
   tavilyApiKey?: string;
 }
@@ -74,6 +76,20 @@ const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     },
   },
   {
+    name: 'chat_settings',
+    description: 'View or change chat settings like routing mode, custom prompt, new session mode, or autonomous cooldown. Only admins can change settings.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['get', 'set_mode', 'set_prompt', 'clear_prompt', 'set_newsession_mode', 'set_cooldown'], description: 'Action to perform' },
+        chat_id: { type: 'number', description: 'Telegram chat ID (auto-injected)' },
+        requesting_user_id: { type: 'number', description: 'User ID making the request (auto-injected)' },
+        value: { type: 'string', description: 'New value. For set_mode: commands_only|all_messages|autonomous. For set_newsession_mode: clean|recent_messages|summary. For set_cooldown: seconds (1-300).' },
+      },
+      required: ['action', 'chat_id', 'requesting_user_id'],
+    },
+  },
+  {
     name: 'web_search',
     description: 'Search the web for current information. Use this when you need up-to-date information, news, or facts that may not be in your training data.',
     input_schema: {
@@ -92,6 +108,7 @@ export class ClaudeAPIProvider implements LLMProvider {
   private model: string;
   private db: Database;
   private adminService: AdminService;
+  private ownerUserId: number;
   private tenorApiKey?: string;
   private tavilyApiKey?: string;
 
@@ -100,6 +117,7 @@ export class ClaudeAPIProvider implements LLMProvider {
     this.model = config.model || 'claude-sonnet-4-20250514';
     this.db = config.db;
     this.adminService = config.adminService;
+    this.ownerUserId = config.ownerUserId;
     this.tenorApiKey = config.tenorApiKey;
     this.tavilyApiKey = config.tavilyApiKey;
   }
@@ -320,6 +338,8 @@ export class ClaudeAPIProvider implements LLMProvider {
         return handleGifSearch(this.tenorApiKey, args as any);
       case 'send_keyboard':
         return { success: true, message: 'Keyboard will be sent to user.' };
+      case 'chat_settings':
+        return handleChatSettings(this.db, this.ownerUserId, (c, u) => this.adminService.isAdmin(c, u), args as any);
       case 'web_search':
         return handleWebSearch(this.tavilyApiKey, args as any);
       default:

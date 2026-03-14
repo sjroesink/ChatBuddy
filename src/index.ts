@@ -52,6 +52,7 @@ async function main() {
         model: config.openaiModel,
         db,
         adminService,
+        ownerUserId: config.ownerUserId,
         tenorApiKey: config.tenorApiKey,
         tavilyApiKey: config.tavilyApiKey,
       });
@@ -67,6 +68,7 @@ async function main() {
         model: config.claudeApiModel,
         db,
         adminService,
+        ownerUserId: config.ownerUserId,
         tenorApiKey: config.tenorApiKey,
         tavilyApiKey: config.tavilyApiKey,
       });

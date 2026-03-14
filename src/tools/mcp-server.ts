@@ -7,6 +7,7 @@ import { handleTelegramHistory } from './telegram-history.js';
 import { handleAdminManagement } from './admin-management.js';
 import { handleGifSearch } from './gif-search.js';
 import { handleWebSearch } from './web-search.js';
+import { handleChatSettings } from './chat-settings.js';
 
 const DB_PATH = process.env.DATABASE_PATH || './data/bot.db';
 const OWNER_ID = parseInt(process.env.OWNER_USER_ID || '0', 10);
@@ -75,6 +76,26 @@ server.registerTool(
   },
   async (params) => {
     const result = await handleGifSearch(TENOR_API_KEY, params);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  'chat_settings',
+  {
+    title: 'Chat Settings',
+    description: 'View or change chat settings like routing mode, custom prompt, new session mode, or autonomous cooldown. Only admins can change settings.',
+    inputSchema: z.object({
+      action: z.enum(['get', 'set_mode', 'set_prompt', 'clear_prompt', 'set_newsession_mode', 'set_cooldown']).describe('Action to perform'),
+      chat_id: z.number().describe('Telegram chat ID (auto-injected)'),
+      requesting_user_id: z.number().describe('User ID making the request (auto-injected)'),
+      value: z.string().optional().describe('New value'),
+    }),
+  },
+  async (params) => {
+    const result = handleChatSettings(db, OWNER_ID, (c, u) => adminService.isAdmin(c, u), params);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
     };
