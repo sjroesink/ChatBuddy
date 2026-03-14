@@ -1,6 +1,6 @@
 services:
   bot:
-    image: ghcr.io/sjroesink/chatbuddy:latest
+    build: .
     restart: unless-stopped
     env_file: .env
     volumes:
