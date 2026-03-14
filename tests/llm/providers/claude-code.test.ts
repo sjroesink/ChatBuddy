@@ -24,9 +24,9 @@ describe('ClaudeCodeProvider', () => {
 
   it('should create a session and return session_id', async () => {
     mockSpawn(JSON.stringify({ session_id: 'sess-123', result: 'ok' }));
-    const session = await provider.createSession('chat-1', 'You are a bot');
-    expect(session.id).toBe('sess-123');
-    expect(session.provider).toBe('claude-code');
+    const result = await provider.createSession('chat-1', 'You are a bot');
+    expect(result.session.id).toBe('sess-123');
+    expect(result.session.provider).toBe('claude-code');
 
     const args = vi.mocked(child_process.spawn).mock.calls[0][1] as string[];
     expect(args).toContain('--system-prompt');

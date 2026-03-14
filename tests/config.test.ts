@@ -1,11 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
+// Prevent dotenv from loading .env file during tests
+vi.mock('dotenv', () => ({ default: { config: vi.fn() }, config: vi.fn() }));
+
 describe('loadConfig', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     vi.resetModules();
-    process.env = { ...originalEnv };
+    process.env = {};
   });
 
   afterEach(() => {
@@ -27,7 +30,6 @@ describe('loadConfig', () => {
 
   it('should throw if TELEGRAM_BOT_TOKEN is missing', async () => {
     process.env.OWNER_USER_ID = '148010228';
-    delete process.env.TELEGRAM_BOT_TOKEN;
 
     const { loadConfig } = await import('../src/config.js');
     expect(() => loadConfig()).toThrow('TELEGRAM_BOT_TOKEN');
@@ -35,7 +37,6 @@ describe('loadConfig', () => {
 
   it('should throw if OWNER_USER_ID is missing', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'test-token';
-    delete process.env.OWNER_USER_ID;
 
     const { loadConfig } = await import('../src/config.js');
     expect(() => loadConfig()).toThrow('OWNER_USER_ID');

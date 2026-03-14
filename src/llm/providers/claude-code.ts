@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { LLMProvider, Session, MessageInput, MessageOutput, LLMError } from '../provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError } from '../provider.js';
 
 export interface ClaudeCodeConfig {
   model?: string;
@@ -14,25 +14,33 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.config = config;
   }
 
-  async createSession(chatId: string, systemPrompt: string): Promise<Session> {
-    // Send a minimal prompt to establish a session and capture session_id.
-    // This is required because `claude -p` is stateless per invocation;
-    // we need the session_id to use --resume on subsequent calls.
+  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult> {
     const args = this.buildBaseArgs();
     if (systemPrompt) {
       // Replace newlines with spaces — cmd.exe on Windows breaks on multiline args
       args.push('--system-prompt', systemPrompt.replace(/\n+/g, ' '));
     }
-    args.push('-p', 'Je bent verbonden met een Telegram chat. Klaar om te helpen.');
+
+    // If a first message is provided, send it during session creation
+    // to avoid a second CLI invocation (saves ~2-3 min on cold start).
+    const prompt = firstMessage
+      ? this.buildPrompt(firstMessage)
+      : 'Je bent verbonden met een Telegram chat. Klaar om te helpen.';
+    args.push('-p', prompt);
     args.push('--output-format', 'json');
 
     const result = await this.runClaude(args);
     const parsed = JSON.parse(result);
 
-    return {
+    const session: Session = {
       id: parsed.session_id,
       chatId,
       provider: 'claude-code',
+    };
+
+    return {
+      session,
+      response: firstMessage ? { text: parsed.result || '' } : undefined,
     };
   }
 

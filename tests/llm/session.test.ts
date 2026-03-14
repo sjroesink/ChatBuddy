@@ -6,9 +6,11 @@ import type { Database } from '../../src/db/database.js';
 function createMockProvider(): LLMProvider {
   return {
     createSession: vi.fn(async (chatId: string) => ({
-      id: `session-${chatId}`,
-      chatId,
-      provider: 'mock',
+      session: {
+        id: `session-${chatId}`,
+        chatId,
+        provider: 'mock',
+      },
     })),
     resumeSession: vi.fn(async (sessionId: string) => ({
       id: sessionId,
@@ -57,8 +59,8 @@ describe('SessionManager', () => {
   });
 
   it('should create a new session when none exists', async () => {
-    const session = await manager.getOrCreateSession(12345, 'You are a bot.');
-    expect(session.id).toBe('session-12345');
+    const result = await manager.getOrCreateSession(12345, 'You are a bot.');
+    expect(result.session.id).toBe('session-12345');
     expect(db.createSession).toHaveBeenCalledWith(12345, 'mock', 'session-12345');
   });
 

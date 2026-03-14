@@ -1,5 +1,11 @@
-import { LLMProvider, Session, LLMError } from './provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, LLMError } from './provider.js';
 import { Database } from '../db/database.js';
+
+export interface GetOrCreateResult {
+  session: Session;
+  /** If a firstMessage was provided and processed during session creation */
+  response?: MessageOutput;
+}
 
 export class SessionManager {
   private provider: LLMProvider;
@@ -10,23 +16,25 @@ export class SessionManager {
     this.db = db;
   }
 
-  async getOrCreateSession(chatId: number, systemPrompt: string): Promise<Session> {
+  async getOrCreateSession(chatId: number, systemPrompt: string, firstMessage?: MessageInput): Promise<GetOrCreateResult> {
     const existing = this.db.getActiveSession(chatId);
 
     if (existing && this.provider.supportsResume()) {
       try {
         const session = await this.provider.resumeSession(existing.session_id);
         session.chatId = String(chatId);
-        return session;
+        return { session };
       } catch {
         // Resume failed — fall through to create new
         this.db.deactivateSession(chatId);
       }
     }
 
-    const session = await this.provider.createSession(String(chatId), systemPrompt);
-    this.db.createSession(chatId, session.provider, session.id);
-    return session;
+    // Pass first message to createSession so providers can handle it
+    // in a single invocation (important for CLI-based providers like Claude Code)
+    const result = await this.provider.createSession(String(chatId), systemPrompt, firstMessage);
+    this.db.createSession(chatId, result.session.provider, result.session.id);
+    return { session: result.session, response: result.response };
   }
 
   async newSession(chatId: number, systemPrompt: string): Promise<{ session: Session; resumeFailed?: boolean }> {
@@ -57,8 +65,9 @@ export class SessionManager {
     }
 
     this.db.deactivateSession(chatId);
-    const session = await this.provider.createSession(String(chatId), systemPrompt);
-    this.db.createSession(chatId, session.provider, session.id);
+    const result = await this.provider.createSession(String(chatId), systemPrompt);
+    this.db.createSession(chatId, result.session.provider, result.session.id);
+    const session = result.session;
 
     if (context) {
       await this.provider.sendMessage(session, {

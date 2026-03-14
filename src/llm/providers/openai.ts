@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { randomUUID } from 'crypto';
-import { LLMProvider, Session, MessageInput, MessageOutput, LLMError } from '../provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError } from '../provider.js';
 import { Database } from '../../db/database.js';
 import { handleTelegramHistory } from '../../tools/telegram-history.js';
 import { handleAdminManagement } from '../../tools/admin-management.js';
@@ -86,17 +86,25 @@ export class OpenAIProvider implements LLMProvider {
     this.tenorApiKey = config.tenorApiKey;
   }
 
-  async createSession(chatId: string, systemPrompt: string): Promise<Session> {
+  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult> {
     const sessionId = randomUUID();
 
     // Store system prompt as first message
     this.db.addConversationMessage(sessionId, 'system', systemPrompt);
 
-    return {
+    const session: Session = {
       id: sessionId,
       chatId,
       provider: 'openai',
     };
+
+    // If a first message is provided, send it immediately to avoid a separate round-trip
+    if (firstMessage) {
+      const response = await this.sendMessage(session, firstMessage);
+      return { session, response };
+    }
+
+    return { session };
   }
 
   async resumeSession(sessionId: string): Promise<Session> {

@@ -3,6 +3,7 @@ import { Database } from './db/database.js';
 import { LLMProvider } from './llm/provider.js';
 import { ClaudeCodeProvider } from './llm/providers/claude-code.js';
 import { OpenAIProvider } from './llm/providers/openai.js';
+import { ClaudeAPIProvider } from './llm/providers/claude-api.js';
 import { SessionManager } from './llm/session.js';
 import { AdminService } from './admin/admin.js';
 import { createBot } from './bot/bot.js';
@@ -40,23 +41,42 @@ async function main() {
   const adminService = new AdminService(db, config.ownerUserId);
 
   let provider: LLMProvider;
-  if (config.llmProvider === 'openai') {
-    if (!config.openaiApiKey) {
-      throw new Error('OPENAI_API_KEY is required when LLM_PROVIDER=openai');
+  switch (config.llmProvider) {
+    case 'openai': {
+      if (!config.openaiApiKey) {
+        throw new Error('OPENAI_API_KEY is required when LLM_PROVIDER=openai');
+      }
+      provider = new OpenAIProvider({
+        apiKey: config.openaiApiKey,
+        model: config.openaiModel,
+        db,
+        adminService,
+        tenorApiKey: config.tenorApiKey,
+      });
+      console.log(`OpenAI model: ${config.openaiModel}`);
+      break;
     }
-    provider = new OpenAIProvider({
-      apiKey: config.openaiApiKey,
-      model: config.openaiModel,
-      db,
-      adminService,
-      tenorApiKey: config.tenorApiKey,
-    });
-    console.log(`OpenAI model: ${config.openaiModel}`);
-  } else {
-    provider = new ClaudeCodeProvider({
-      model: config.claudeModel,
-      mcpConfigPath,
-    });
+    case 'claude-api': {
+      if (!config.anthropicApiKey) {
+        throw new Error('ANTHROPIC_API_KEY is required when LLM_PROVIDER=claude-api');
+      }
+      provider = new ClaudeAPIProvider({
+        apiKey: config.anthropicApiKey,
+        model: config.claudeApiModel,
+        db,
+        adminService,
+        tenorApiKey: config.tenorApiKey,
+      });
+      console.log(`Claude API model: ${config.claudeApiModel}`);
+      break;
+    }
+    default: {
+      provider = new ClaudeCodeProvider({
+        model: config.claudeModel,
+        mcpConfigPath,
+      });
+      break;
+    }
   }
 
   const sessionManager = new SessionManager(provider, db);

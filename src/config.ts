@@ -1,10 +1,13 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config();
 
 export interface Config {
   telegramBotToken: string;
   ownerUserId: number;
-  llmProvider: 'claude-code' | 'openai' | 'ollama';
+  llmProvider: 'claude-code' | 'claude-api' | 'openai' | 'ollama';
   claudeModel?: string;
+  claudeApiModel?: string;
+  anthropicApiKey?: string;
   openaiModel?: string;
   tenorApiKey?: string;
   openaiApiKey?: string;
@@ -31,6 +34,8 @@ export function loadConfig(): Config {
     ownerUserId,
     llmProvider: (process.env.LLM_PROVIDER as Config['llmProvider']) || 'claude-code',
     claudeModel: process.env.CLAUDE_MODEL || undefined,
+    claudeApiModel: process.env.CLAUDE_API_MODEL || 'claude-sonnet-4-20250514',
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o',
     tenorApiKey: process.env.TENOR_API_KEY || undefined,
     openaiApiKey: process.env.OPENAI_API_KEY || undefined,

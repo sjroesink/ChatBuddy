@@ -35,8 +35,13 @@ export class LLMError extends Error {
   }
 }
 
+export interface CreateSessionResult {
+  session: Session;
+  response?: MessageOutput;
+}
+
 export interface LLMProvider {
-  createSession(chatId: string, systemPrompt: string): Promise<Session>;
+  createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult>;
   resumeSession(sessionId: string): Promise<Session>;
   destroySession(sessionId: string): Promise<void>;
   sendMessage(session: Session, message: MessageInput): Promise<MessageOutput>;

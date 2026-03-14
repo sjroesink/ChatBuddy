@@ -124,8 +124,6 @@ export function createBot(
         await ctx.replyWithChatAction('typing');
 
         const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
-        const session = await sessionManager.getOrCreateSession(chatId, systemPrompt);
-
         const messageInput: MessageInput = { text };
 
         // Handle photo attachments
@@ -173,7 +171,11 @@ export function createBot(
           }
         }
 
-        const response = await provider.sendMessage(session, messageInput);
+        // Pass messageInput to getOrCreateSession — if a new session is needed,
+        // the provider can handle the first message in the same invocation
+        // (avoids double CLI spawn for Claude Code, saving ~2-3 min).
+        const { session, response: createResponse } = await sessionManager.getOrCreateSession(chatId, systemPrompt, messageInput);
+        const response = createResponse || await provider.sendMessage(session, messageInput);
 
         // Handle empty response in autonomous mode (LLM chose not to respond)
         if (isAutonomous && (!response.text || response.text.trim() === '')) {
