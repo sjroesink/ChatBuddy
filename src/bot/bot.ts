@@ -246,11 +246,7 @@ export function createBot(
     const isPrivate = chatType === 'private';
     const messageText = ctx.message.text ?? ctx.message.caption ?? '';
 
-    if (!shouldProcessMessage(routingMode, messageText, botUsername, isPrivate)) {
-      return;
-    }
-
-    // Autonomous mode: buffer messages
+    // In autonomous mode: buffer ALL messages (including mentions) and process as batch
     if (routingMode === 'autonomous' && !isPrivate) {
       const cooldown = (chat?.autonomous_cooldown || 10) * 1000;
       let buffer = autonomousBuffers.get(chatId);
@@ -283,7 +279,12 @@ export function createBot(
       return;
     }
 
-    await processMessage(ctx, chatId, messageText, routingMode === 'autonomous');
+    // Non-autonomous modes: check if we should process
+    if (!shouldProcessMessage(routingMode, messageText, botUsername, isPrivate)) {
+      return;
+    }
+
+    await processMessage(ctx, chatId, messageText, false);
   });
 
   async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean): Promise<void> {
@@ -445,10 +446,13 @@ export function createBot(
       });
     } catch (error) {
       console.error(`Error processing message for chat ${chatId}:`, error);
-      if (error instanceof Error && error.message.includes('timeout')) {
-        await ctx.reply('Antwoord duurde te lang, probeer het opnieuw.').catch(() => {});
-      } else {
-        await ctx.reply('Er ging iets mis, probeer het opnieuw.').catch(() => {});
+      // In autonomous mode: fail silently — don't spam the group with error messages
+      if (!isAutonomous) {
+        if (error instanceof Error && error.message.includes('timeout')) {
+          await ctx.reply('Antwoord duurde te lang, probeer het opnieuw.').catch(() => {});
+        } else {
+          await ctx.reply('Er ging iets mis, probeer het opnieuw.').catch(() => {});
+        }
       }
     }
   }
