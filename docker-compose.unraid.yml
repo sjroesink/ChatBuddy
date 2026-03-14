@@ -4,7 +4,7 @@ services:
     container_name: chatbuddy
     restart: unless-stopped
     env_file: .env
-    volumes:
-      - /mnt/user/appdata/chatbuddy:/app/data
-    environment:
-      - DATABASE_PATH=/app/data/bot.db
+#    volumes:
+#      - /mnt/user/appdata/chatbuddy:/app/data
+#    environment:
+#      - DATABASE_PATH=/app/data/bot.db

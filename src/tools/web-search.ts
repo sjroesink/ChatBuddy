@@ -6,7 +6,7 @@ export interface WebSearchParams {
 export interface WebSearchResult {
   results: Array<{
     title: string;
-    url: string;
+    source: string;
     content: string;
   }>;
 }
@@ -16,7 +16,7 @@ export async function handleWebSearch(
   params: WebSearchParams,
 ): Promise<WebSearchResult> {
   if (!apiKey) {
-    return { results: [{ title: 'Error', url: '', content: 'Web search is niet geconfigureerd (TAVILY_API_KEY ontbreekt).' }] };
+    return { results: [{ title: 'Error', source: '', content: 'Web search is niet geconfigureerd (TAVILY_API_KEY ontbreekt).' }] };
   }
 
   const maxResults = Math.min(params.max_results || 5, 10);
@@ -35,7 +35,7 @@ export async function handleWebSearch(
     });
 
     if (!response.ok) {
-      return { results: [{ title: 'Error', url: '', content: `Tavily API error: ${response.status}` }] };
+      return { results: [{ title: 'Error', source: '', content: `Tavily API error: ${response.status}` }] };
     }
 
     const data = await response.json() as { results?: Array<{ title?: string; url?: string; content?: string }> };
@@ -43,13 +43,13 @@ export async function handleWebSearch(
     return {
       results: (data.results || []).map((r) => ({
         title: r.title || '',
-        url: r.url || '',
+        source: r.url ? new URL(r.url).hostname : '',
         content: r.content || '',
       })),
     };
   } catch (error) {
     return {
-      results: [{ title: 'Error', url: '', content: `Search failed: ${error instanceof Error ? error.message : String(error)}` }],
+      results: [{ title: 'Error', source: '', content: `Search failed: ${error instanceof Error ? error.message : String(error)}` }],
     };
   }
 }
