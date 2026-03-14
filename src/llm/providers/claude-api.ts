@@ -58,6 +58,19 @@ const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['query'],
     },
   },
+  {
+    name: 'send_keyboard',
+    description: 'Send a message with an inline keyboard to let the user choose from options. The user\'s choice will be sent back to you as a message.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', description: 'The message text to display above the keyboard' },
+        options: { type: 'array', items: { type: 'string' }, description: 'Array of option labels for the keyboard buttons' },
+        columns: { type: 'number', description: 'Number of buttons per row (default 2, max 4)' },
+      },
+      required: ['message', 'options'],
+    },
+  },
 ];
 
 export class ClaudeAPIProvider implements LLMProvider {
@@ -118,6 +131,10 @@ export class ClaudeAPIProvider implements LLMProvider {
         tools: TOOL_DEFINITIONS,
       });
 
+      // Track media and keyboards from tool results
+      const mediaAttachments: import('../provider.js').MediaAttachment[] = [];
+      const outputToolResults: import('../provider.js').ToolResult[] = [];
+
       // Handle tool use loop
       while (response.stop_reason === 'tool_use') {
         // Store assistant response with tool calls
@@ -132,6 +149,24 @@ export class ClaudeAPIProvider implements LLMProvider {
         for (const block of response.content) {
           if (block.type === 'tool_use') {
             const result = await this.executeTool(block.name, block.input);
+
+            // Extract GIF URLs from gif_search results
+            if (block.name === 'gif_search') {
+              const gifResult = result as { gifs?: Array<{ url: string }> };
+              if (gifResult.gifs?.length) {
+                for (const gif of gifResult.gifs) {
+                  if (gif.url) {
+                    mediaAttachments.push({ type: 'gif', data: gif.url, mimeType: 'image/gif' });
+                  }
+                }
+              }
+            }
+
+            // Track keyboard tool results
+            if (block.name === 'send_keyboard') {
+              outputToolResults.push({ tool: 'send_keyboard', result: { _type: 'inline_keyboard', ...(block.input as Record<string, unknown>) } });
+            }
+
             toolResults.push({
               type: 'tool_result',
               tool_use_id: block.id,
@@ -165,7 +200,11 @@ export class ClaudeAPIProvider implements LLMProvider {
       // Store final response
       this.db.addConversationMessage(session.id, 'assistant', text);
 
-      return { text };
+      return {
+        text,
+        media: mediaAttachments.length > 0 ? mediaAttachments : undefined,
+        toolResults: outputToolResults.length > 0 ? outputToolResults : undefined,
+      };
     } catch (error) {
       throw new LLMError(
         `Claude API failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -263,6 +302,8 @@ export class ClaudeAPIProvider implements LLMProvider {
         return handleAdminManagement(this.adminService, args as any);
       case 'gif_search':
         return handleGifSearch(this.tenorApiKey, args as any);
+      case 'send_keyboard':
+        return { success: true, message: 'Keyboard will be sent to user.' };
       default:
         return { error: `Unknown tool: ${name}` };
     }

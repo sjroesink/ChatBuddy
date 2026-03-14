@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError } from '../provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, MediaAttachment, CreateSessionResult, LLMError } from '../provider.js';
 
 export interface ClaudeCodeConfig {
   model?: string;
@@ -38,9 +38,10 @@ export class ClaudeCodeProvider implements LLMProvider {
       provider: 'claude-code',
     };
 
+    const responseText = parsed.result || '';
     return {
       session,
-      response: firstMessage ? { text: parsed.result || '' } : undefined,
+      response: firstMessage ? this.extractMediaFromText(responseText) : undefined,
     };
   }
 
@@ -68,7 +69,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     try {
       const result = await this.runClaude(args);
       const parsed = JSON.parse(result);
-      return { text: parsed.result || '' };
+      return this.extractMediaFromText(parsed.result || '');
     } catch (error) {
       throw new LLMError(
         `Claude Code failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -117,6 +118,26 @@ export class ClaudeCodeProvider implements LLMProvider {
       }
     }
     return parts.join('\n\n');
+  }
+
+  /**
+   * Extract Tenor GIF URLs from response text and return them as media attachments.
+   * Claude Code handles gif_search via MCP internally, so GIF URLs appear in the text.
+   */
+  private extractMediaFromText(text: string): MessageOutput {
+    const gifUrlPattern = /https?:\/\/media1?\.tenor\.com\/[^\s)"\]]+\.gif/g;
+    const urls = [...new Set(text.match(gifUrlPattern) || [])];
+    const media: MediaAttachment[] = urls.map((url) => ({ type: 'gif', data: url, mimeType: 'image/gif' }));
+    // Remove the GIF URLs from the text to avoid showing raw URLs alongside the animation
+    let cleanText = text;
+    for (const url of urls) {
+      cleanText = cleanText.replace(url, '').replace(/\n{3,}/g, '\n\n');
+    }
+    cleanText = cleanText.trim();
+    return {
+      text: cleanText || undefined,
+      media: media.length > 0 ? media : undefined,
+    };
   }
 
   private runClaude(args: string[]): Promise<string> {

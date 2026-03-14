@@ -69,6 +69,22 @@ const TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'send_keyboard',
+      description: 'Send a message with an inline keyboard to let the user choose from options. The user\'s choice will be sent back to you as a message.',
+      parameters: {
+        type: 'object',
+        properties: {
+          message: { type: 'string', description: 'The message text to display above the keyboard' },
+          options: { type: 'array', items: { type: 'string' }, description: 'Array of option labels for the keyboard buttons' },
+          columns: { type: 'number', description: 'Number of buttons per row (default 2, max 4)' },
+        },
+        required: ['message', 'options'],
+      },
+    },
+  },
 ];
 
 export class OpenAIProvider implements LLMProvider {
@@ -146,6 +162,10 @@ export class OpenAIProvider implements LLMProvider {
       let choice = response.choices[0];
       let assistantMessage = choice.message;
 
+      // Track media and keyboards from tool results
+      const mediaAttachments: import('../provider.js').MediaAttachment[] = [];
+      const toolResults: import('../provider.js').ToolResult[] = [];
+
       // Handle tool calls loop
       while (assistantMessage.tool_calls?.length) {
         // Store assistant message with tool calls
@@ -160,6 +180,25 @@ export class OpenAIProvider implements LLMProvider {
         for (const toolCall of assistantMessage.tool_calls) {
           if (toolCall.type !== 'function') continue;
           const result = await this.executeTool(toolCall.function.name, toolCall.function.arguments);
+
+          // Extract GIF URLs from gif_search results
+          if (toolCall.function.name === 'gif_search') {
+            const gifResult = result as { gifs?: Array<{ url: string }> };
+            if (gifResult.gifs?.length) {
+              for (const gif of gifResult.gifs) {
+                if (gif.url) {
+                  mediaAttachments.push({ type: 'gif', data: gif.url, mimeType: 'image/gif' });
+                }
+              }
+            }
+          }
+
+          // Track keyboard tool results
+          if (toolCall.function.name === 'send_keyboard') {
+            const kbArgs = JSON.parse(toolCall.function.arguments);
+            toolResults.push({ tool: 'send_keyboard', result: { _type: 'inline_keyboard', ...kbArgs } });
+          }
+
           this.db.addConversationMessage(
             session.id,
             'tool',
@@ -187,7 +226,11 @@ export class OpenAIProvider implements LLMProvider {
       const text = assistantMessage.content || '';
       this.db.addConversationMessage(session.id, 'assistant', text);
 
-      return { text };
+      return {
+        text,
+        media: mediaAttachments.length > 0 ? mediaAttachments : undefined,
+        toolResults: toolResults.length > 0 ? toolResults : undefined,
+      };
     } catch (error) {
       throw new LLMError(
         `OpenAI failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -271,6 +314,8 @@ export class OpenAIProvider implements LLMProvider {
         return handleAdminManagement(this.adminService, args);
       case 'gif_search':
         return handleGifSearch(this.tenorApiKey, args);
+      case 'send_keyboard':
+        return { success: true, message: 'Keyboard will be sent to user.' };
       default:
         return { error: `Unknown tool: ${name}` };
     }

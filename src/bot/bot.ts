@@ -1,4 +1,4 @@
-import { Bot, Context, InputFile } from 'grammy';
+import { Bot, Context, InputFile, InlineKeyboard } from 'grammy';
 import { Config } from '../config.js';
 import { Database } from '../db/database.js';
 import { SessionManager } from '../llm/session.js';
@@ -52,7 +52,24 @@ export function createBot(
     await next();
   });
 
-  // /newsession command
+  // --- Slash Commands ---
+
+  bot.command('help', async (ctx) => {
+    const text = [
+      '<b>Beschikbare commando\'s:</b>',
+      '',
+      '/help — Dit overzicht',
+      '/newsession — Start een nieuwe sessie',
+      '/setmode — Stel de routing modus in',
+      '/setprompt — Stel de custom prompt in',
+      '/setprovider — Wissel van LLM provider',
+      '/settings — Toon huidige instellingen',
+      '',
+      '<i>Admin commando\'s zijn alleen beschikbaar voor admins.</i>',
+    ].join('\n');
+    await ctx.reply(text, { parse_mode: 'HTML' });
+  });
+
   bot.command('newsession', async (ctx) => {
     const chatId = ctx.chat.id;
     const userId = ctx.from?.id;
@@ -63,9 +80,156 @@ export function createBot(
 
     await queue.enqueue(chatId, async () => {
       const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
-      const { session } = await sessionManager.newSession(chatId, systemPrompt);
+      await sessionManager.newSession(chatId, systemPrompt);
       await ctx.reply('Nieuwe sessie gestart.');
     });
+  });
+
+  bot.command('setmode', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const userId = ctx.from?.id;
+    if (!userId || !adminService.isAdmin(chatId, userId)) {
+      await ctx.reply('Je hebt geen rechten voor dit commando.');
+      return;
+    }
+
+    const chat = db.getChat(chatId);
+    const current = chat?.routing_mode || 'commands_only';
+
+    const keyboard = new InlineKeyboard()
+      .text(`${current === 'commands_only' ? '✓ ' : ''}Commands only`, 'setmode:commands_only')
+      .text(`${current === 'all_messages' ? '✓ ' : ''}Alle berichten`, 'setmode:all_messages')
+      .text(`${current === 'autonomous' ? '✓ ' : ''}Autonoom`, 'setmode:autonomous');
+
+    await ctx.reply('Kies de routing modus:', { reply_markup: keyboard });
+  });
+
+  bot.command('setprompt', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const userId = ctx.from?.id;
+    if (!userId || !adminService.isAdmin(chatId, userId)) {
+      await ctx.reply('Je hebt geen rechten voor dit commando.');
+      return;
+    }
+
+    const rest = ctx.match?.trim();
+    if (!rest) {
+      const chat = db.getChat(chatId);
+      const current = chat?.custom_prompt || '(geen)';
+      const keyboard = new InlineKeyboard()
+        .text('Verwijder prompt', 'setprompt:clear');
+      await ctx.reply(`Huidige prompt: <i>${escapeHtml(current)}</i>\n\nGebruik: <code>/setprompt Je bent een sarcastische assistent</code>`, {
+        parse_mode: 'HTML',
+        reply_markup: keyboard,
+      });
+      return;
+    }
+
+    db.updateChat(chatId, { custom_prompt: rest });
+    await ctx.reply(`Custom prompt ingesteld: <i>${escapeHtml(rest)}</i>`, { parse_mode: 'HTML' });
+  });
+
+  bot.command('setprovider', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const userId = ctx.from?.id;
+    if (!userId || !adminService.isAdmin(chatId, userId)) {
+      await ctx.reply('Je hebt geen rechten voor dit commando.');
+      return;
+    }
+
+    const keyboard = new InlineKeyboard()
+      .text(`${config.llmProvider === 'claude-code' ? '✓ ' : ''}Claude Code`, 'setprovider:claude-code')
+      .row()
+      .text(`${config.llmProvider === 'claude-api' ? '✓ ' : ''}Claude API`, 'setprovider:claude-api')
+      .row()
+      .text(`${config.llmProvider === 'openai' ? '✓ ' : ''}OpenAI`, 'setprovider:openai');
+
+    await ctx.reply('⚠️ Provider wisselen vereist een herstart van de bot.\nHuidige provider: <b>' + config.llmProvider + '</b>', {
+      parse_mode: 'HTML',
+      reply_markup: keyboard,
+    });
+  });
+
+  bot.command('settings', async (ctx) => {
+    const chatId = ctx.chat.id;
+    const chat = db.getChat(chatId);
+    const admins = adminService.listAdmins(chatId);
+
+    const lines = [
+      '<b>Instellingen voor deze chat:</b>',
+      '',
+      `<b>Provider:</b> ${config.llmProvider}`,
+      `<b>Routing modus:</b> ${chat?.routing_mode || 'commands_only'}`,
+      `<b>Custom prompt:</b> ${chat?.custom_prompt ? escapeHtml(chat.custom_prompt.slice(0, 100)) + (chat.custom_prompt.length > 100 ? '...' : '') : '(geen)'}`,
+      `<b>Nieuwe sessie modus:</b> ${chat?.new_session_mode || 'clean'}`,
+      `<b>Autonome cooldown:</b> ${chat?.autonomous_cooldown || 10}s`,
+      `<b>Admins:</b> ${admins.length > 0 ? admins.map(a => {
+        const username = db.resolveUsernameByUserId(chatId, a.user_id);
+        return username ? `@${username}` : `${a.user_id}`;
+      }).join(', ') : '(alleen owner)'}`,
+    ];
+
+    await ctx.reply(lines.join('\n'), { parse_mode: 'HTML' });
+  });
+
+  // --- Callback Query Handler (inline keyboard responses) ---
+
+  bot.on('callback_query:data', async (ctx) => {
+    const data = ctx.callbackQuery.data;
+    const chatId = ctx.chat?.id;
+    const userId = ctx.from?.id;
+
+    if (!chatId || !userId) {
+      await ctx.answerCallbackQuery('Fout: geen chat gevonden.');
+      return;
+    }
+
+    // Handle setmode callbacks
+    if (data.startsWith('setmode:')) {
+      if (!adminService.isAdmin(chatId, userId)) {
+        await ctx.answerCallbackQuery('Je hebt geen rechten hiervoor.');
+        return;
+      }
+      const mode = data.slice('setmode:'.length);
+      db.updateChat(chatId, { routing_mode: mode });
+      await ctx.answerCallbackQuery(`Modus ingesteld op: ${mode}`);
+      await ctx.editMessageText(`Routing modus ingesteld op: <b>${mode}</b>`, { parse_mode: 'HTML' });
+      return;
+    }
+
+    // Handle setprompt:clear callback
+    if (data === 'setprompt:clear') {
+      if (!adminService.isAdmin(chatId, userId)) {
+        await ctx.answerCallbackQuery('Je hebt geen rechten hiervoor.');
+        return;
+      }
+      db.updateChat(chatId, { custom_prompt: '' });
+      await ctx.answerCallbackQuery('Custom prompt verwijderd.');
+      await ctx.editMessageText('Custom prompt verwijderd.');
+      return;
+    }
+
+    // Handle setprovider callbacks (informational only — requires restart)
+    if (data.startsWith('setprovider:')) {
+      await ctx.answerCallbackQuery('Wijzig LLM_PROVIDER in je .env en herstart de bot.');
+      return;
+    }
+
+    // Handle LLM-generated keyboard callbacks (prefixed with 'llm:')
+    if (data.startsWith('llm:')) {
+      const selectedOption = data.slice('llm:'.length);
+      await ctx.answerCallbackQuery();
+
+      // Update the message to show the selection
+      const originalText = ctx.callbackQuery.message?.text || '';
+      await ctx.editMessageText(`${originalText}\n\n<b>Gekozen:</b> ${escapeHtml(selectedOption)}`, { parse_mode: 'HTML' }).catch(() => {});
+
+      // Send the selection as a message to the LLM
+      await processMessage(ctx, chatId, `[Gebruiker koos optie: ${selectedOption}]`, false);
+      return;
+    }
+
+    await ctx.answerCallbackQuery();
   });
 
   // Main message handler
@@ -122,6 +286,11 @@ export function createBot(
     try {
       await queue.enqueue(chatId, async () => {
         await ctx.replyWithChatAction('typing');
+        const typingInterval = setInterval(() => {
+          ctx.replyWithChatAction('typing').catch(() => {});
+        }, 5000);
+
+        try {
 
         const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
         const messageInput: MessageInput = { text };
@@ -186,10 +355,32 @@ export function createBot(
         if (response.text) {
           const parts = splitMessage(response.text);
           for (const part of parts) {
-            await ctx.reply(part, { parse_mode: 'Markdown' }).catch(async () => {
-              // If Markdown parsing fails, send as plain text
+            await ctx.reply(part, { parse_mode: 'HTML' }).catch(async () => {
+              // If HTML parsing fails, send as plain text
               await ctx.reply(part);
             });
+          }
+        }
+
+        // Send inline keyboards from tool results
+        if (response.toolResults?.length) {
+          for (const tr of response.toolResults) {
+            if (tr.tool === 'send_keyboard') {
+              const kb = tr.result as { _type: string; message: string; options: string[]; columns?: number };
+              if (kb._type === 'inline_keyboard' && kb.options?.length) {
+                const keyboard = new InlineKeyboard();
+                const cols = Math.min(kb.columns || 2, 4);
+                kb.options.forEach((opt, i) => {
+                  keyboard.text(opt, `llm:${opt}`);
+                  if ((i + 1) % cols === 0 && i < kb.options.length - 1) {
+                    keyboard.row();
+                  }
+                });
+                await ctx.reply(kb.message, { reply_markup: keyboard, parse_mode: 'HTML' }).catch(async () => {
+                  await ctx.reply(kb.message, { reply_markup: keyboard });
+                });
+              }
+            }
           }
         }
 
@@ -202,6 +393,10 @@ export function createBot(
               await ctx.replyWithAnimation(new InputFile(new URL(media.data)));
             }
           }
+        }
+
+        } finally {
+          clearInterval(typingInterval);
         }
       });
     } catch (error) {
@@ -224,6 +419,15 @@ function buildSystemPrompt(db: Database, chatId: number, botUsername: string): s
   parts.push(`Je bent een AI assistent in een Telegram chat. Je botnaam is @${botUsername}.`);
   parts.push('Je zit in een Telegram chat die mogelijk langer teruggaat dan je huidige sessie. Als je context nodig hebt van eerdere berichten, gebruik dan de telegram_history tool om gericht te zoeken in de chatgeschiedenis.');
 
+  parts.push(`FORMATTING: Je berichten worden weergegeven in Telegram met HTML parse_mode. Gebruik HTML-tags voor opmaak:
+- <b>vet</b>, <i>cursief</i>, <u>onderstreept</u>, <s>doorgestreept</s>
+- <code>inline code</code> voor korte code
+- <pre>codeblok</pre> voor meerregelige code (met optioneel <pre><code class="language-python">...</code></pre> voor syntax highlighting)
+- <a href="url">linktekst</a> voor links
+- <blockquote>citaat</blockquote> voor citaten
+- <tg-spoiler>spoiler</tg-spoiler> voor spoilers
+Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altijd de HTML-tags hierboven. Tekst zonder tags wordt gewoon als platte tekst weergegeven. Zorg dat je HTML correct is — open tags moeten altijd gesloten worden. Escape speciale tekens in gewone tekst: gebruik &amp; voor &, &lt; voor <, &gt; voor >.`);
+
   if (chat?.routing_mode === 'autonomous') {
     parts.push('Je bent in autonome modus. Je ontvangt alle berichten uit de chat. Reageer ALLEEN als je iets waardevols bij te dragen hebt. Als je niet wilt reageren, antwoord dan met een leeg bericht (geen tekst).');
   }
@@ -234,6 +438,11 @@ function buildSystemPrompt(db: Database, chatId: number, botUsername: string): s
 
   parts.push('\nAls iemand je vraagt om een admin toe te voegen, te verwijderen, of de adminlijst te tonen, gebruik dan de admin_management tool.');
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
+  parts.push('Als je de gebruiker een keuze wilt aanbieden, gebruik dan de send_keyboard tool om een inline keyboard te sturen met opties. De gebruiker klikt op een optie en het resultaat wordt als bericht naar je teruggestuurd.');
 
   return parts.join('\n\n');
+}
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

@@ -79,6 +79,31 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  'send_keyboard',
+  {
+    title: 'Send Inline Keyboard',
+    description: 'Send a message with an inline keyboard to let the user choose from options. The user\'s choice will be sent back to you as a message.',
+    inputSchema: z.object({
+      message: z.string().describe('The message text to display above the keyboard'),
+      options: z.array(z.string()).min(1).max(20).describe('Array of option labels for the keyboard buttons'),
+      columns: z.number().min(1).max(4).default(2).describe('Number of buttons per row'),
+    }),
+  },
+  async (params) => {
+    // Return the keyboard data — Claude Code will include this in its response
+    // and the bot will parse it to create an actual Telegram inline keyboard
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({
+        _type: 'inline_keyboard',
+        message: params.message,
+        options: params.options,
+        columns: params.columns || 2,
+      }) }],
+    };
+  },
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
