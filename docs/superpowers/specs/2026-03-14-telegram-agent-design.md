@@ -54,17 +54,17 @@ interface MessageInput {
 interface MessageOutput {
   text?: string
   media?: MediaAttachment[]
-  gifSearch?: string
+  toolResults?: ToolResult[]  // results from tools like gif_search, admin_management
 }
 ```
 
 ### Claude Code Headless Implementation
 
 - `createSession` → spawns `claude --headless` with system prompt including chat-specific instructions
-- `resumeSession` → spawns `claude --headless --resume <id>`
+- `resumeSession` → spawns `claude --headless --resume <id>`. If resume fails (session expired, corrupted), automatically creates a new session and notifies the user in chat: "Vorige sessie kon niet hervat worden, nieuwe sessie gestart."
 - `sendMessage` → sends JSON via stdin, reads JSON response from stdout
 - Media is passed as base64 or file path to Claude
-- GIF search is made available as a tool to Claude (via Tenor API)
+- Tools (`telegram_history`, `admin_management`, `gif_search`) are provided to Claude via `--allowedTools` flag or MCP server configuration
 
 ### Future Providers (OpenAI, Ollama)
 
@@ -77,6 +77,8 @@ interface MessageOutput {
 ### Per-chat Queue
 
 Each chatId gets its own FIFO queue. Messages are processed sequentially — only after the response to message 1 is sent does message 2 get forwarded to the LLM. This prevents race conditions in the session.
+
+**Timeout**: If an LLM call takes longer than 120 seconds, it is cancelled, the user is notified ("Antwoord duurde te lang, probeer het opnieuw"), and the queue continues with the next message.
 
 ### Routing Modes (configurable per chat)
 
@@ -91,6 +93,7 @@ Each chatId gets its own FIFO queue. Messages are processed sequentially — onl
 - Every incoming message is sent to the LLM with the chat-specific custom prompt
 - The LLM receives a special instruction: respond with an empty response if it chooses not to react
 - The LLM decides autonomously, guided by the custom prompt
+- **Rate limiting**: In autonomous mode, a configurable cooldown period applies (default: 10 seconds). Messages arriving during cooldown are buffered and sent as a batch when the cooldown expires. This prevents excessive LLM calls in busy group chats. The cooldown is configurable per chat via admin settings.
 
 ### Custom Prompt
 
@@ -127,11 +130,38 @@ Configurable per chat:
 
 ### Chat History Access for the LLM
 
-The LLM session gets a tool to query the Telegram API for old messages. The system prompt tells the agent:
+The LLM session gets a `telegram_history` tool to query old messages. The system prompt tells the agent:
 
-> "Je zit in een Telegram chat die mogelijk langer teruggaat dan je huidige sessie. Als je context nodig hebt van eerdere berichten, gebruik dan de `telegram_search` tool om gericht te zoeken in de chatgeschiedenis."
+> "Je zit in een Telegram chat die mogelijk langer teruggaat dan je huidige sessie. Als je context nodig hebt van eerdere berichten, gebruik dan de `telegram_history` tool om gericht te zoeken in de chatgeschiedenis."
 
-This lets the agent decide when to look back.
+#### `telegram_history` Tool Interface
+
+```typescript
+// Parameters the LLM can pass
+interface TelegramHistoryParams {
+  chat_id: number
+  query?: string        // text search within messages
+  limit?: number        // max messages to return (default: 20, max: 100)
+  offset_id?: number    // fetch messages before this message ID
+  from_user?: string    // filter by username
+}
+
+// Returns
+interface TelegramHistoryResult {
+  messages: Array<{
+    id: number
+    from: string         // display name
+    username?: string
+    date: string         // ISO timestamp
+    text: string
+    reply_to?: number    // message ID this replies to
+    has_media: boolean
+    media_type?: string
+  }>
+}
+```
+
+The bot stores all incoming messages in a local SQLite `messages` table as they arrive. The `telegram_history` tool queries this local store — no MTProto or Bot API history calls needed. The chat_id is automatically injected by the bot — the LLM cannot query chats it's not part of. Note: history is only available from the moment the bot joined the chat.
 
 ## Admin System
 
@@ -150,6 +180,28 @@ Managed via natural language in the chat:
 
 The LLM recognizes these intents and executes them via an `admin_management` tool. Only existing admins (and the owner) can add/remove admins.
 
+#### `admin_management` Tool Interface
+
+```typescript
+// Parameters the LLM can pass
+interface AdminManagementParams {
+  action: 'add' | 'remove' | 'list'
+  chat_id: number          // auto-injected
+  requesting_user_id: number  // auto-injected, used for permission check
+  target_user_id?: number  // required for add/remove
+  target_username?: string // resolved to user_id from stored messages (only works for users the bot has seen)
+}
+
+// Returns
+interface AdminManagementResult {
+  success: boolean
+  message: string          // human-readable result
+  admins?: Array<{ user_id: number; username?: string }>  // for 'list' action
+}
+```
+
+The tool checks permissions before executing: only the owner or existing admins can modify the admin list. The owner cannot be removed.
+
 ### Admin Permissions
 
 Admins can:
@@ -166,18 +218,31 @@ Admins can:
 - Photos, documents, videos, voice messages → downloaded via Telegram API
 - Images are passed as base64 to the LLM (Claude supports vision)
 - Documents are extracted as text where possible, otherwise passed as file path
-- Voice messages → speech-to-text via external service (e.g., Whisper) or passed as file
+- Voice messages → transcribed using OpenAI Whisper API (requires `OPENAI_API_KEY` in config). The transcribed text is sent to the LLM as a quoted message with a note that it was a voice message. If `OPENAI_API_KEY` is not configured, the bot replies with "Voice berichten worden niet ondersteund (Whisper API niet geconfigureerd)" and the message is still stored in the messages table (with `has_media=1, media_type='voice'`, no text).
 
 ### Sending
 
 - Text → regular Telegram messages (with markdown formatting)
-- Images → if the LLM generates an image (via tools), it's sent as a photo
-- GIFs → the LLM gets a `send_gif` tool that searches via Tenor/Giphy API and sends the result as animation in Telegram
-- Long messages → automatically split if they exceed the Telegram limit (4096 chars)
+- Images → if the LLM returns a `MediaAttachment` with type `image` in its output, it's sent as a photo in Telegram
+- GIFs → the LLM gets a `gif_search` tool that searches Tenor API and returns the URL. The bot core sends the result as animation in Telegram. The `gifSearch` field on `MessageOutput` is removed in favor of this tool-based approach. The LLM decides when a GIF is appropriate based on the custom prompt/personality of the chat.
 
-### GIF Behavior
+#### `gif_search` Tool Interface
 
-The LLM decides when a GIF is appropriate, based on the custom prompt/personality of the chat. The tool searches on a search term chosen by the LLM and sends the best result.
+```typescript
+interface GifSearchParams {
+  query: string         // search term chosen by the LLM
+  limit?: number        // max results (default: 1, max: 5)
+}
+
+interface GifSearchResult {
+  gifs: Array<{
+    url: string         // direct GIF/MP4 URL
+    preview_url: string
+    title: string
+  }>
+}
+```
+- Long messages → automatically split at markdown-safe boundaries (outside code blocks, not mid-paragraph) if they exceed the Telegram limit (4096 chars). Falls back to splitting at the last newline before the limit.
 
 ## Database Schema
 
@@ -201,6 +266,25 @@ CREATE TABLE sessions (
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   ended_at    TEXT
 );
+
+CREATE INDEX idx_sessions_chat_active ON sessions(chat_id, active);
+
+-- Stored messages for telegram_history tool
+CREATE TABLE messages (
+  message_id   INTEGER NOT NULL,
+  chat_id      INTEGER NOT NULL,
+  user_id      INTEGER,
+  username     TEXT,
+  display_name TEXT,
+  text         TEXT,
+  has_media    INTEGER NOT NULL DEFAULT 0,
+  media_type   TEXT,
+  reply_to     INTEGER,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (chat_id, message_id)
+);
+
+CREATE INDEX idx_messages_chat_date ON messages(chat_id, created_at);
 
 CREATE TABLE chat_admins (
   chat_id   INTEGER NOT NULL REFERENCES chats(chat_id),
@@ -258,6 +342,9 @@ CLAUDE_MODEL=                 # optional, e.g., 'claude-sonnet-4-20250514'
 
 # GIF
 TENOR_API_KEY=                # for GIF search
+
+# Voice messages
+OPENAI_API_KEY=               # for Whisper speech-to-text (optional, voice messages ignored without it)
 
 # Database
 DATABASE_PATH=./data/bot.db   # SQLite file location
