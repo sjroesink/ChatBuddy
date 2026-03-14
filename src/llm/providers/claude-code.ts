@@ -20,7 +20,8 @@ export class ClaudeCodeProvider implements LLMProvider {
     // we need the session_id to use --resume on subsequent calls.
     const args = this.buildBaseArgs();
     if (systemPrompt) {
-      args.push('--system-prompt', systemPrompt);
+      // Replace newlines with spaces — cmd.exe on Windows breaks on multiline args
+      args.push('--system-prompt', systemPrompt.replace(/\n+/g, ' '));
     }
     args.push('-p', 'Je bent verbonden met een Telegram chat. Klaar om te helpen.');
     args.push('--output-format', 'json');
@@ -89,7 +90,7 @@ export class ClaudeCodeProvider implements LLMProvider {
   private buildPrompt(message: MessageInput): string {
     const parts: string[] = [];
     if (message.context) {
-      parts.push(`[Context]\n${message.context}`);
+      parts.push(`[Context] ${message.context}`);
     }
     if (message.text) {
       parts.push(message.text);
@@ -117,6 +118,7 @@ export class ClaudeCodeProvider implements LLMProvider {
 
       const proc = spawn('claude', args, {
         stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true, // Required on Windows — claude is a .cmd file
       });
 
       let stdout = '';
