@@ -29,7 +29,7 @@ export async function transcribeVoice(voiceUrl: string, openaiApiKey: string): P
       Authorization: `Bearer ${openaiApiKey}`,
       ...form.getHeaders(),
     },
-    body: form.getBuffer(),
+    body: form.getBuffer() as unknown as BodyInit,
   });
 
   if (!response.ok) {
