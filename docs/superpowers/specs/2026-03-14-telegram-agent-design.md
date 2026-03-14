@@ -64,7 +64,7 @@ interface MessageOutput {
 - `resumeSession` → spawns `claude --headless --resume <id>`. If resume fails (session expired, corrupted), automatically creates a new session and notifies the user in chat: "Vorige sessie kon niet hervat worden, nieuwe sessie gestart."
 - `sendMessage` → sends JSON via stdin, reads JSON response from stdout
 - Media is passed as base64 or file path to Claude
-- Tools (`telegram_history`, `admin_management`, `gif_search`) are provided to Claude via `--allowedTools` flag or MCP server configuration
+- Tools (`telegram_history`, `admin_management`, `gif_search`) are provided to Claude as an MCP server. The bot runs a lightweight MCP server (stdio transport) that exposes these tools, and passes the server config to Claude Code via the `--mcp-config` flag.
 
 ### Future Providers (OpenAI, Ollama)
 
@@ -93,7 +93,13 @@ Each chatId gets its own FIFO queue. Messages are processed sequentially — onl
 - Every incoming message is sent to the LLM with the chat-specific custom prompt
 - The LLM receives a special instruction: respond with an empty response if it chooses not to react
 - The LLM decides autonomously, guided by the custom prompt
-- **Rate limiting**: In autonomous mode, a configurable cooldown period applies (default: 10 seconds). Messages arriving during cooldown are buffered and sent as a batch when the cooldown expires. This prevents excessive LLM calls in busy group chats. The cooldown is configurable per chat via admin settings.
+- **Rate limiting**: In autonomous mode, a configurable cooldown period applies (default: 10 seconds). Messages arriving during cooldown are buffered and sent as a batch when the cooldown expires (max batch size: 20 messages). Batched messages are formatted as a conversation log with sender attribution:
+  ```
+  [14:23] @peter: Hey wat vinden jullie van...
+  [14:23] @jan: Ik denk dat...
+  [14:24] @peter: Maar dan...
+  ```
+  This prevents excessive LLM calls in busy group chats. The cooldown is configurable per chat via admin settings.
 
 ### Custom Prompt
 
@@ -126,7 +132,7 @@ Configurable per chat:
 |---------|----------|
 | `clean` | Clean slate, no context (default) |
 | `recent_messages` | Pass last N Telegram messages to new session (N configurable) |
-| `summary` | Old session creates a summary first, passed to the new session |
+| `summary` | Old session creates a summary first, passed to the new session. The bot sends a final prompt ("Vat deze conversatie samen in maximaal 500 woorden") to the old session before destroying it. If the old session cannot be resumed, falls back to `recent_messages` mode. |
 
 ### Chat History Access for the LLM
 
@@ -200,7 +206,7 @@ interface AdminManagementResult {
 }
 ```
 
-The tool checks permissions before executing: only the owner or existing admins can modify the admin list. The owner cannot be removed.
+The tool checks permissions before executing: only the owner or existing admins can modify the admin list. The owner cannot be removed. If `target_username` cannot be resolved to a `user_id` (user never seen by the bot), the tool returns `{ success: false, message: "Gebruiker @username niet gevonden. Deze gebruiker moet eerst een bericht sturen in deze chat." }`.
 
 ### Admin Permissions
 
@@ -217,7 +223,7 @@ Admins can:
 
 - Photos, documents, videos, voice messages → downloaded via Telegram API
 - Images are passed as base64 to the LLM (Claude supports vision)
-- Documents are extracted as text where possible, otherwise passed as file path
+- Documents: PDF files are passed directly to Claude (which supports PDF input). Plain text files (.txt, .csv, .json, .md, etc.) are read as UTF-8 text. Other document types are noted as "[Unsupported document: filename.ext]" in the message to the LLM.
 - Voice messages → transcribed using OpenAI Whisper API (requires `OPENAI_API_KEY` in config). The transcribed text is sent to the LLM as a quoted message with a note that it was a voice message. If `OPENAI_API_KEY` is not configured, the bot replies with "Voice berichten worden niet ondersteund (Whisper API niet geconfigureerd)" and the message is still stored in the messages table (with `has_media=1, media_type='voice'`, no text).
 
 ### Sending
@@ -242,6 +248,7 @@ interface GifSearchResult {
   }>
 }
 ```
+- **Response ordering**: When the LLM produces both text and tool results (e.g., a text reply + a GIF), the text is sent first, then media/GIFs. Each is a separate Telegram message.
 - Long messages → automatically split at markdown-safe boundaries (outside code blocks, not mid-paragraph) if they exceed the Telegram limit (4096 chars). Falls back to splitting at the last newline before the limit.
 
 ## Database Schema
@@ -254,6 +261,7 @@ CREATE TABLE chats (
   custom_prompt        TEXT,
   new_session_mode     TEXT NOT NULL DEFAULT 'clean',
   recent_messages_count INTEGER DEFAULT 20,
+  autonomous_cooldown  INTEGER DEFAULT 10,   -- seconds, for autonomous mode rate limiting
   created_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
