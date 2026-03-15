@@ -8,6 +8,7 @@ import { handleAdminManagement } from './admin-management.js';
 import { handleGifSearch } from './gif-search.js';
 import { handleWebSearch } from './web-search.js';
 import { handleChatSettings } from './chat-settings.js';
+import { handleWebFetch } from './web-fetch.js';
 
 const DB_PATH = process.env.DATABASE_PATH || './data/bot.db';
 const OWNER_ID = parseInt(process.env.OWNER_USER_ID || '0', 10);
@@ -96,6 +97,24 @@ server.registerTool(
   },
   async (params) => {
     const result = handleChatSettings(db, OWNER_ID, (c, u) => adminService.isAdmin(c, u), params);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+    };
+  },
+);
+
+server.registerTool(
+  'web_fetch',
+  {
+    title: 'Fetch Web Page',
+    description: 'Fetch and extract text content from a URL. Use this FIRST when someone shares a link. Falls back to web_search if the page cannot be fetched.',
+    inputSchema: z.object({
+      url: z.string().describe('The URL to fetch'),
+      max_length: z.number().default(3000).describe('Max characters to return'),
+    }),
+  },
+  async (params) => {
+    const result = await handleWebFetch(params);
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
     };

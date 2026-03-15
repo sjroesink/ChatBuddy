@@ -557,7 +557,10 @@ Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelne
   parts.push('\nAls iemand je vraagt om een admin toe te voegen, te verwijderen, of de adminlijst te tonen, gebruik dan de admin_management tool.');
   parts.push('Als iemand vraagt om instellingen te wijzigen (routing modus, custom prompt, provider, cooldown, sessie-modus), gebruik dan de chat_settings tool. Je kunt hiermee de modus wijzigen (commands_only/all_messages/autonomous), een custom prompt instellen, de cooldown aanpassen, etc. Alleen admins mogen dit.');
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
-  parts.push('BELANGRIJK: Je hebt een web_search tool beschikbaar. Als de gebruiker vraagt naar nieuws, actuele gebeurtenissen, recente feiten, of ENIGE informatie die recent kan zijn veranderd, MOET je ALTIJD EERST de web_search tool gebruiken voordat je antwoord geeft. Zeg NOOIT dat je geen toegang hebt tot het internet — je hebt web_search. Als iemand een URL deelt (Reddit, nieuwsartikel, etc.), gebruik web_search om de inhoud op te zoeken en er iets over te zeggen.');
+  parts.push(`INTERNET TOEGANG: Je hebt twee tools om informatie van het internet op te halen:
+- web_fetch: Haal de inhoud van een specifieke URL op. Gebruik dit ALTIJD EERST wanneer iemand een link deelt (Reddit, nieuws, YouTube, etc.). Als web_fetch faalt, val dan terug op web_search.
+- web_search: Zoek op het internet naar informatie. Gebruik dit voor vragen over actueel nieuws, recente feiten, of als web_fetch faalt.
+Zeg NOOIT dat je geen toegang hebt tot het internet.`);
   parts.push('Je hebt een send_keyboard tool, maar gebruik deze ZEER SPAARZAAM. Gebruik het ALLEEN wanneer er een echte, concrete keuze is die je niet in tekst kunt oplossen (bijv. een poll of een configuratiekeuze). Gebruik het NOOIT voor: vervolgvragen, conversatie-opties, "wil je meer weten over X of Y", of om het gesprek te sturen. Gewoon antwoorden in tekst is bijna altijd beter.');
 
   return parts.join('\n\n');

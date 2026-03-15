@@ -6,6 +6,7 @@ import { handleTelegramHistory } from '../../tools/telegram-history.js';
 import { handleAdminManagement } from '../../tools/admin-management.js';
 import { handleGifSearch } from '../../tools/gif-search.js';
 import { handleWebSearch } from '../../tools/web-search.js';
+import { handleWebFetch } from '../../tools/web-fetch.js';
 import { handleChatSettings } from '../../tools/chat-settings.js';
 import { AdminService } from '../../admin/admin.js';
 
@@ -103,6 +104,21 @@ const TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           value: { type: 'string', description: 'New value. For set_mode: commands_only|all_messages|autonomous. For set_newsession_mode: clean|recent_messages|summary. For set_cooldown: seconds (1-300).' },
         },
         required: ['action', 'chat_id', 'requesting_user_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'web_fetch',
+      description: 'Fetch and extract text content from a URL. Use this FIRST when someone shares a link. Falls back to web_search if the page cannot be fetched.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'The URL to fetch' },
+          max_length: { type: 'number', description: 'Max characters to return (default 3000)' },
+        },
+        required: ['url'],
       },
     },
   },
@@ -358,6 +374,8 @@ export class OpenAIProvider implements LLMProvider {
         return { success: true, message: 'Keyboard will be sent to user.' };
       case 'chat_settings':
         return handleChatSettings(this.db, this.ownerUserId, (c, u) => this.adminService.isAdmin(c, u), args);
+      case 'web_fetch':
+        return handleWebFetch(args);
       case 'web_search':
         return handleWebSearch(this.tavilyApiKey, args);
       default:
