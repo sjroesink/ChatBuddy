@@ -8,8 +8,15 @@ import { shouldProcessMessage, RoutingMode } from './router.js';
 import { splitMessage, classifyDocument, transcribeVoice } from './media.js';
 import { AdminService } from '../admin/admin.js';
 
+interface BufferedMessage {
+  username: string;
+  text: string;
+  time: string;
+  photoFileId?: string;  // Store file_id so we can download it later during batch processing
+}
+
 interface AutonomousBuffer {
-  messages: Array<{ username: string; text: string; time: string }>;
+  messages: BufferedMessage[];
   timer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -266,7 +273,14 @@ export function createBot(
         msgText = `${replyContext}\n${msgText}`;
       }
 
-      buffer.messages.push({ username, text: msgText, time });
+      // Store photo file_id for later processing
+      let photoFileId: string | undefined;
+      if (ctx.message.photo?.length) {
+        photoFileId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
+        if (!messageText) msgText = `${msgText} [foto bijgevoegd]`;
+      }
+
+      buffer.messages.push({ username, text: msgText, time, photoFileId });
 
       // Drop oldest if > 20
       if (buffer.messages.length > 20) {
@@ -281,7 +295,11 @@ export function createBot(
         if (msgs.length === 0) return;
 
         const batchText = msgs.map((m) => `[${m.time}] @${m.username}: ${m.text}`).join('\n');
-        await processMessage(ctx, chatId, batchText, true);
+
+        // Collect photo file_ids from buffered messages
+        const photoFileIds = msgs.filter((m) => m.photoFileId).map((m) => m.photoFileId!);
+
+        await processMessage(ctx, chatId, batchText, true, photoFileIds);
       }, cooldown);
 
       return;
@@ -299,7 +317,7 @@ export function createBot(
     await processMessage(ctx, chatId, fullText, false);
   });
 
-  async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean): Promise<void> {
+  async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean, extraPhotoFileIds?: string[]): Promise<void> {
     try {
       await queue.enqueue(chatId, async () => {
         await ctx.replyWithChatAction('typing');
@@ -320,6 +338,23 @@ export function createBot(
             const url = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
             messageInput.media = [{ type: 'image', data: url, mimeType: 'image/jpeg' }];
           }
+        }
+
+        // Handle extra photos from autonomous buffer (photos from other messages in the batch)
+        if (extraPhotoFileIds?.length) {
+          const media = messageInput.media || [];
+          for (const fileId of extraPhotoFileIds) {
+            try {
+              const file = await ctx.api.getFile(fileId);
+              if (file.file_path) {
+                const url = `https://api.telegram.org/file/bot${config.telegramBotToken}/${file.file_path}`;
+                media.push({ type: 'image', data: url, mimeType: 'image/jpeg' });
+              }
+            } catch {
+              // File might have expired, skip it
+            }
+          }
+          if (media.length > 0) messageInput.media = media;
         }
 
         // Handle documents
@@ -522,7 +557,7 @@ Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelne
   parts.push('\nAls iemand je vraagt om een admin toe te voegen, te verwijderen, of de adminlijst te tonen, gebruik dan de admin_management tool.');
   parts.push('Als iemand vraagt om instellingen te wijzigen (routing modus, custom prompt, provider, cooldown, sessie-modus), gebruik dan de chat_settings tool. Je kunt hiermee de modus wijzigen (commands_only/all_messages/autonomous), een custom prompt instellen, de cooldown aanpassen, etc. Alleen admins mogen dit.');
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
-  parts.push('BELANGRIJK: Je hebt een web_search tool beschikbaar. Als de gebruiker vraagt naar nieuws, actuele gebeurtenissen, recente feiten, of ENIGE informatie die recent kan zijn veranderd, MOET je ALTIJD EERST de web_search tool gebruiken voordat je antwoord geeft. Zeg NOOIT dat je geen toegang hebt tot het internet — je hebt web_search.');
+  parts.push('BELANGRIJK: Je hebt een web_search tool beschikbaar. Als de gebruiker vraagt naar nieuws, actuele gebeurtenissen, recente feiten, of ENIGE informatie die recent kan zijn veranderd, MOET je ALTIJD EERST de web_search tool gebruiken voordat je antwoord geeft. Zeg NOOIT dat je geen toegang hebt tot het internet — je hebt web_search. Als iemand een URL deelt (Reddit, nieuwsartikel, etc.), gebruik web_search om de inhoud op te zoeken en er iets over te zeggen.');
   parts.push('Je hebt een send_keyboard tool, maar gebruik deze ZEER SPAARZAAM. Gebruik het ALLEEN wanneer er een echte, concrete keuze is die je niet in tekst kunt oplossen (bijv. een poll of een configuratiekeuze). Gebruik het NOOIT voor: vervolgvragen, conversatie-opties, "wil je meer weten over X of Y", of om het gesprek te sturen. Gewoon antwoorden in tekst is bijna altijd beter.');
 
   return parts.join('\n\n');
