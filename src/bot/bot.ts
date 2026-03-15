@@ -258,7 +258,15 @@ export function createBot(
       const time = new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
       const displayName = ctx.from?.first_name || 'Unknown';
       const username = ctx.from?.username || displayName;
-      buffer.messages.push({ username, text: messageText || `[${ctx.message.sticker ? 'sticker' : ctx.message.photo ? 'foto' : ctx.message.animation ? 'GIF' : 'media'}]`, time });
+      let msgText = messageText || `[${ctx.message.sticker ? 'sticker' : ctx.message.photo ? 'foto' : ctx.message.animation ? 'GIF' : 'media'}]`;
+
+      // Include reply context
+      const replyContext = formatReplyContext(ctx);
+      if (replyContext) {
+        msgText = `${replyContext}\n${msgText}`;
+      }
+
+      buffer.messages.push({ username, text: msgText, time });
 
       // Drop oldest if > 20
       if (buffer.messages.length > 20) {
@@ -284,7 +292,11 @@ export function createBot(
       return;
     }
 
-    await processMessage(ctx, chatId, messageText, false);
+    // Include reply context so the LLM knows what message is being replied to
+    const replyContext = formatReplyContext(ctx);
+    const fullText = replyContext ? `${replyContext}\n${messageText}` : messageText;
+
+    await processMessage(ctx, chatId, fullText, false);
   });
 
   async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean): Promise<void> {
@@ -514,6 +526,32 @@ Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelne
   parts.push('Je hebt een send_keyboard tool, maar gebruik deze ZEER SPAARZAAM. Gebruik het ALLEEN wanneer er een echte, concrete keuze is die je niet in tekst kunt oplossen (bijv. een poll of een configuratiekeuze). Gebruik het NOOIT voor: vervolgvragen, conversatie-opties, "wil je meer weten over X of Y", of om het gesprek te sturen. Gewoon antwoorden in tekst is bijna altijd beter.');
 
   return parts.join('\n\n');
+}
+
+function formatReplyContext(ctx: Context): string | null {
+  const reply = ctx.message && 'reply_to_message' in ctx.message ? ctx.message.reply_to_message : null;
+  if (!reply) return null;
+
+  const replyFrom = reply.from?.username ? `@${reply.from.username}` : reply.from?.first_name || 'Iemand';
+  const parts: string[] = [];
+
+  // Text content
+  const replyText = ('text' in reply ? reply.text : null) ?? ('caption' in reply ? reply.caption : null);
+  if (replyText) {
+    parts.push(replyText.length > 200 ? replyText.slice(0, 200) + '...' : replyText);
+  }
+
+  // Media indicators
+  if ('photo' in reply && reply.photo?.length) parts.push('[foto]');
+  if ('animation' in reply && reply.animation) parts.push('[GIF]');
+  if ('video' in reply && reply.video) parts.push('[video]');
+  if ('document' in reply && reply.document) parts.push(`[document: ${reply.document.file_name || 'bestand'}]`);
+  if ('sticker' in reply && reply.sticker) parts.push(`[sticker: ${reply.sticker.emoji || ''}]`);
+  if ('voice' in reply && reply.voice) parts.push('[voice bericht]');
+
+  if (parts.length === 0) parts.push('[bericht]');
+
+  return `[Reply op ${replyFrom}: ${parts.join(' ')}]`;
 }
 
 function getKnownUsers(db: Database, chatId: number): Array<{ username: string | null; displayName: string }> {
