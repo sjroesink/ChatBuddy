@@ -273,6 +273,18 @@ export class Database {
     this.db.prepare('DELETE FROM conversation_messages WHERE session_id = ?').run(sessionId);
   }
 
+  sanitizeConversationUrls(sessionId: string): void {
+    const rows = this.db.prepare(
+      'SELECT rowid, content FROM conversation_messages WHERE session_id = ? AND content IS NOT NULL'
+    ).all(sessionId) as Array<{ rowid: number; content: string }>;
+    for (const row of rows) {
+      if (/https?:\/\//.test(row.content)) {
+        const sanitized = row.content.replace(/https?:\/\/[^\s"'<>\]\\]+/g, '[link verwijderd]');
+        this.db.prepare('UPDATE conversation_messages SET content = ? WHERE rowid = ?').run(sanitized, row.rowid);
+      }
+    }
+  }
+
   close(): void {
     this.db.close();
   }

@@ -170,7 +170,7 @@ export class ClaudeAPIProvider implements LLMProvider {
       const { system, messages } = this.historyToMessages(history);
 
       // Call Claude API (with robots.txt retry logic)
-      let response = await this.callWithRobotsTxtRetry(system, messages);
+      let response = await this.callWithRobotsTxtRetry(session.id, system, messages);
 
       // Track media and keyboards from tool results
       const mediaAttachments: import('../provider.js').MediaAttachment[] = [];
@@ -223,7 +223,7 @@ export class ClaudeAPIProvider implements LLMProvider {
         const updatedHistory = this.db.getConversationHistory(session.id);
         const updated = this.historyToMessages(updatedHistory);
 
-        response = await this.callWithRobotsTxtRetry(updated.system, updated.messages);
+        response = await this.callWithRobotsTxtRetry(session.id, updated.system, updated.messages);
       }
 
       // Extract text from response
@@ -336,8 +336,10 @@ export class ClaudeAPIProvider implements LLMProvider {
 
   /**
    * Call Claude API, stripping blocked URLs from messages on robots.txt errors and retrying once.
+   * Also sanitizes the stored conversation history in DB so future messages don't fail.
    */
   private async callWithRobotsTxtRetry(
+    sessionId: string,
     system: string,
     messages: Anthropic.MessageParam[],
   ): Promise<Anthropic.Message> {
@@ -351,7 +353,9 @@ export class ClaudeAPIProvider implements LLMProvider {
       });
     } catch (error) {
       if (error instanceof Error && error.message.includes('robots.txt')) {
-        // Strip URLs from message content and retry
+        // Sanitize stored history so future calls don't hit the same error
+        this.db.sanitizeConversationUrls(sessionId);
+        // Strip URLs from in-memory messages and retry
         const sanitized = this.stripUrlsFromMessages(messages);
         return await this.client.messages.create({
           model: this.model,
