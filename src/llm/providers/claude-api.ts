@@ -169,14 +169,8 @@ export class ClaudeAPIProvider implements LLMProvider {
       const history = this.db.getConversationHistory(session.id);
       const { system, messages } = this.historyToMessages(history);
 
-      // Call Claude API
-      let response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 4096,
-        system,
-        messages,
-        tools: TOOL_DEFINITIONS,
-      });
+      // Call Claude API (with robots.txt retry logic)
+      let response = await this.callWithRobotsTxtRetry(system, messages);
 
       // Track media and keyboards from tool results
       const mediaAttachments: import('../provider.js').MediaAttachment[] = [];
@@ -229,13 +223,7 @@ export class ClaudeAPIProvider implements LLMProvider {
         const updatedHistory = this.db.getConversationHistory(session.id);
         const updated = this.historyToMessages(updatedHistory);
 
-        response = await this.client.messages.create({
-          model: this.model,
-          max_tokens: 4096,
-          system: updated.system,
-          messages: updated.messages,
-          tools: TOOL_DEFINITIONS,
-        });
+        response = await this.callWithRobotsTxtRetry(updated.system, updated.messages);
       }
 
       // Extract text from response
@@ -253,6 +241,12 @@ export class ClaudeAPIProvider implements LLMProvider {
         toolResults: outputToolResults.length > 0 ? outputToolResults : undefined,
       };
     } catch (error) {
+      // If even the retry failed due to robots.txt, return a friendly message instead of crashing
+      if (error instanceof Error && error.message.includes('robots.txt')) {
+        const fallbackText = 'Sorry, ik kan die link niet verwerken omdat de website dit blokkeert. Probeer de inhoud te kopiëren of een andere link te sturen.';
+        this.db.addConversationMessage(session.id, 'assistant', fallbackText);
+        return { text: fallbackText };
+      }
       throw new LLMError(
         `Claude API failed: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined,
@@ -338,6 +332,62 @@ export class ClaudeAPIProvider implements LLMProvider {
     }
 
     return { system, messages };
+  }
+
+  /**
+   * Call Claude API, stripping blocked URLs from messages on robots.txt errors and retrying once.
+   */
+  private async callWithRobotsTxtRetry(
+    system: string,
+    messages: Anthropic.MessageParam[],
+  ): Promise<Anthropic.Message> {
+    try {
+      return await this.client.messages.create({
+        model: this.model,
+        max_tokens: 4096,
+        system,
+        messages,
+        tools: TOOL_DEFINITIONS,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('robots.txt')) {
+        // Strip URLs from message content and retry
+        const sanitized = this.stripUrlsFromMessages(messages);
+        return await this.client.messages.create({
+          model: this.model,
+          max_tokens: 4096,
+          system,
+          messages: sanitized,
+          tools: TOOL_DEFINITIONS,
+        });
+      }
+      throw error;
+    }
+  }
+
+  private stripUrls(text: string): string {
+    return text.replace(/https?:\/\/[^\s"'<>\]]+/g, '[link verwijderd]');
+  }
+
+  private stripUrlsFromMessages(messages: Anthropic.MessageParam[]): Anthropic.MessageParam[] {
+    return messages.map((msg) => {
+      if (typeof msg.content === 'string') {
+        return { ...msg, content: this.stripUrls(msg.content) } as Anthropic.MessageParam;
+      }
+      if (Array.isArray(msg.content)) {
+        const cleaned = msg.content.map((block) => {
+          if ('text' in block && typeof (block as { text: string }).text === 'string') {
+            return { ...block, text: this.stripUrls((block as { text: string }).text) };
+          }
+          if ('content' in block && typeof (block as { content: string }).content === 'string') {
+            return { ...block, content: this.stripUrls((block as { content: string }).content) };
+          }
+          return block;
+        });
+        return { ...msg, content: cleaned } as Anthropic.MessageParam;
+      }
+      return msg;
+    });
   }
 
   private async executeTool(name: string, input: unknown): Promise<unknown> {
