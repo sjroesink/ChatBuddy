@@ -170,6 +170,7 @@ export function createBot(
       `<b>Custom prompt:</b> ${chat?.custom_prompt ? escapeHtml(chat.custom_prompt.slice(0, 100)) + (chat.custom_prompt.length > 100 ? '...' : '') : '(geen)'}`,
       `<b>Nieuwe sessie modus:</b> ${chat?.new_session_mode || 'clean'}`,
       `<b>Autonome cooldown:</b> ${chat?.autonomous_cooldown || 10}s`,
+      `<b>Opstartmelding:</b> ${(chat?.notify_on_start ?? 1) ? 'aan' : 'uit'}`,
       `<b>Admins:</b> ${admins.length > 0 ? admins.map(a => {
         const username = db.resolveUsernameByUserId(chatId, a.user_id);
         return username ? `@${username}` : `${a.user_id}`;
@@ -595,7 +596,7 @@ Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelne
   }
 
   parts.push('\nAls iemand je vraagt om een admin toe te voegen, te verwijderen, of de adminlijst te tonen, gebruik dan de admin_management tool.');
-  parts.push('Als iemand vraagt om instellingen te wijzigen (routing modus, custom prompt, provider, cooldown, sessie-modus), gebruik dan de chat_settings tool. Je kunt hiermee de modus wijzigen (commands_only/all_messages/autonomous), een custom prompt instellen, de cooldown aanpassen, etc. Alleen admins mogen dit.');
+  parts.push('Als iemand vraagt om instellingen te wijzigen (routing modus, custom prompt, provider, cooldown, sessie-modus, opstartmelding), gebruik dan de chat_settings tool. Je kunt hiermee de modus wijzigen (commands_only/all_messages/autonomous), een custom prompt instellen, de cooldown aanpassen, de opstartmelding aan/uit zetten (set_notify_on_start), etc. Alleen admins mogen dit.');
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
   parts.push(`INTERNET TOEGANG: Je hebt twee tools om informatie van het internet op te halen:
 - web_fetch: Haal de inhoud van een specifieke URL op. Gebruik dit ALTIJD EERST wanneer iemand een link deelt (Reddit, nieuws, YouTube, etc.). Als web_fetch faalt, val dan terug op web_search.

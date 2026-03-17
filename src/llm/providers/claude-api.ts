@@ -82,10 +82,10 @@ const TOOL_DEFINITIONS: Anthropic.Tool[] = [
     input_schema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['get', 'set_mode', 'set_prompt', 'clear_prompt', 'set_newsession_mode', 'set_cooldown'], description: 'Action to perform' },
+        action: { type: 'string', enum: ['get', 'set_mode', 'set_prompt', 'clear_prompt', 'set_newsession_mode', 'set_cooldown', 'set_notify_on_start'], description: 'Action to perform' },
         chat_id: { type: 'number', description: 'Telegram chat ID (auto-injected)' },
         requesting_user_id: { type: 'number', description: 'User ID making the request (auto-injected)' },
-        value: { type: 'string', description: 'New value. For set_mode: commands_only|all_messages|autonomous. For set_newsession_mode: clean|recent_messages|summary. For set_cooldown: seconds (1-300).' },
+        value: { type: 'string', description: 'New value. For set_mode: commands_only|all_messages|autonomous. For set_newsession_mode: clean|recent_messages|summary. For set_cooldown: seconds (1-300). For set_notify_on_start: aan/uit.' },
       },
       required: ['action', 'chat_id', 'requesting_user_id'],
     },

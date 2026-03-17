@@ -115,8 +115,20 @@ async function main() {
 
   await bot.start({
     drop_pending_updates: true,
-    onStart: (botInfo) => {
+    onStart: async (botInfo) => {
       console.log(`Bot started as @${botInfo.username}`);
+
+      // Send startup notification to chats with notify_on_start enabled
+      const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf-8'));
+      const version = pkg.version || '?.?.?';
+      const chats = db.getAllChats().filter(c => c.notify_on_start);
+      for (const chat of chats) {
+        try {
+          await bot.api.sendMessage(chat.chat_id, `🤖 Online — v${version}`, { parse_mode: 'HTML' });
+        } catch (err) {
+          console.error(`Failed to send startup message to chat ${chat.chat_id}:`, err instanceof Error ? err.message : err);
+        }
+      }
     },
   });
 }

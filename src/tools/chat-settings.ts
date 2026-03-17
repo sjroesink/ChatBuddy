@@ -1,7 +1,7 @@
 import { Database } from '../db/database.js';
 
 export interface ChatSettingsParams {
-  action: 'get' | 'set_mode' | 'set_prompt' | 'clear_prompt' | 'set_newsession_mode' | 'set_cooldown';
+  action: 'get' | 'set_mode' | 'set_prompt' | 'clear_prompt' | 'set_newsession_mode' | 'set_cooldown' | 'set_notify_on_start';
   chat_id: number;
   requesting_user_id: number;
   value?: string;
@@ -35,6 +35,7 @@ export function handleChatSettings(
           new_session_mode: chat?.new_session_mode || 'clean',
           recent_messages_count: chat?.recent_messages_count || 20,
           autonomous_cooldown: chat?.autonomous_cooldown || 10,
+          notify_on_start: chat?.notify_on_start ?? 1 ? true : false,
         },
       };
     }
@@ -77,6 +78,16 @@ export function handleChatSettings(
       }
       db.updateChat(params.chat_id, { autonomous_cooldown: seconds });
       return { success: true, message: `Autonome cooldown ingesteld op ${seconds} seconden.` };
+    }
+
+    case 'set_notify_on_start': {
+      const val = params.value?.toLowerCase();
+      if (val !== 'true' && val !== 'false' && val !== '1' && val !== '0' && val !== 'aan' && val !== 'uit') {
+        return { success: false, message: 'Waarde moet aan/uit, true/false, of 1/0 zijn.' };
+      }
+      const enabled = val === 'true' || val === '1' || val === 'aan' ? 1 : 0;
+      db.updateChat(params.chat_id, { notify_on_start: enabled });
+      return { success: true, message: `Opstartmelding ${enabled ? 'ingeschakeld' : 'uitgeschakeld'}.` };
     }
 
     default:

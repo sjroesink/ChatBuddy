@@ -89,7 +89,7 @@ server.registerTool(
     title: 'Chat Settings',
     description: 'View or change chat settings like routing mode, custom prompt, new session mode, or autonomous cooldown. Only admins can change settings.',
     inputSchema: z.object({
-      action: z.enum(['get', 'set_mode', 'set_prompt', 'clear_prompt', 'set_newsession_mode', 'set_cooldown']).describe('Action to perform'),
+      action: z.enum(['get', 'set_mode', 'set_prompt', 'clear_prompt', 'set_newsession_mode', 'set_cooldown', 'set_notify_on_start']).describe('Action to perform'),
       chat_id: z.number().describe('Telegram chat ID (auto-injected)'),
       requesting_user_id: z.number().describe('User ID making the request (auto-injected)'),
       value: z.string().optional().describe('New value'),

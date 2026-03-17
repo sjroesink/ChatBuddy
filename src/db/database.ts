@@ -10,6 +10,7 @@ export interface ChatRow {
   new_session_mode: string;
   recent_messages_count: number;
   autonomous_cooldown: number;
+  notify_on_start: number;
   created_at: string;
 }
 
@@ -134,6 +135,12 @@ export class Database {
         PRIMARY KEY (chat_id, user_id)
       );
     `);
+
+    // Add notify_on_start column if it doesn't exist (migration)
+    const cols = this.db.prepare("PRAGMA table_info(chats)").all() as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'notify_on_start')) {
+      this.db.exec("ALTER TABLE chats ADD COLUMN notify_on_start INTEGER NOT NULL DEFAULT 1");
+    }
   }
 
   upsertChat(chatId: number, chatType: string): void {
@@ -149,8 +156,12 @@ export class Database {
     return this.db.prepare('SELECT * FROM chats WHERE chat_id = ?').get(chatId) as ChatRow | undefined;
   }
 
-  updateChat(chatId: number, updates: Partial<Pick<ChatRow, 'routing_mode' | 'custom_prompt' | 'new_session_mode' | 'recent_messages_count' | 'autonomous_cooldown'>>): void {
-    const ALLOWED_COLUMNS = new Set(['routing_mode', 'custom_prompt', 'new_session_mode', 'recent_messages_count', 'autonomous_cooldown']);
+  getAllChats(): ChatRow[] {
+    return this.db.prepare('SELECT * FROM chats').all() as ChatRow[];
+  }
+
+  updateChat(chatId: number, updates: Partial<Pick<ChatRow, 'routing_mode' | 'custom_prompt' | 'new_session_mode' | 'recent_messages_count' | 'autonomous_cooldown' | 'notify_on_start'>>): void {
+    const ALLOWED_COLUMNS = new Set(['routing_mode', 'custom_prompt', 'new_session_mode', 'recent_messages_count', 'autonomous_cooldown', 'notify_on_start']);
     const setClauses: string[] = [];
     const values: unknown[] = [];
 
