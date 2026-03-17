@@ -1,4 +1,4 @@
-import { LLMProvider, Session, MessageInput, MessageOutput, LLMError } from './provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, LLMError, ToolCallbacks } from './provider.js';
 import { Database } from '../db/database.js';
 
 export interface GetOrCreateResult {
@@ -16,7 +16,7 @@ export class SessionManager {
     this.db = db;
   }
 
-  async getOrCreateSession(chatId: number, systemPrompt: string, firstMessage?: MessageInput): Promise<GetOrCreateResult> {
+  async getOrCreateSession(chatId: number, systemPrompt: string, firstMessage?: MessageInput, callbacks?: ToolCallbacks): Promise<GetOrCreateResult> {
     const existing = this.db.getActiveSession(chatId);
 
     if (existing && this.provider.supportsResume()) {
@@ -32,7 +32,7 @@ export class SessionManager {
 
     // Pass first message to createSession so providers can handle it
     // in a single invocation (important for CLI-based providers like Claude Code)
-    const result = await this.provider.createSession(String(chatId), systemPrompt, firstMessage);
+    const result = await this.provider.createSession(String(chatId), systemPrompt, firstMessage, callbacks);
     this.db.createSession(chatId, result.session.provider, result.session.id);
     return { session: result.session, response: result.response };
   }

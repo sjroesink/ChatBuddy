@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { randomUUID } from 'crypto';
-import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError } from '../provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError, ToolCallbacks } from '../provider.js';
 import { Database } from '../../db/database.js';
 import { handleTelegramHistory } from '../../tools/telegram-history.js';
 import { handleAdminManagement } from '../../tools/admin-management.js';
@@ -137,6 +137,21 @@ const TOOL_DEFINITIONS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'send_message',
+      description: 'Send a message to the Telegram chat immediately. Use this to send progress updates, break long responses into multiple messages, or communicate with the user while performing other tasks.',
+      parameters: {
+        type: 'object',
+        properties: {
+          text: { type: 'string', description: 'The message text (HTML formatted)' },
+          chat_id: { type: 'number', description: 'Telegram chat ID (auto-injected)' },
+        },
+        required: ['text', 'chat_id'],
+      },
+    },
+  },
 ];
 
 export class OpenAIProvider implements LLMProvider {
@@ -158,7 +173,7 @@ export class OpenAIProvider implements LLMProvider {
     this.tavilyApiKey = config.tavilyApiKey;
   }
 
-  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult> {
+  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput, callbacks?: ToolCallbacks): Promise<CreateSessionResult> {
     const sessionId = randomUUID();
 
     // Store system prompt as first message
@@ -172,7 +187,7 @@ export class OpenAIProvider implements LLMProvider {
 
     // If a first message is provided, send it immediately to avoid a separate round-trip
     if (firstMessage) {
-      const response = await this.sendMessage(session, firstMessage);
+      const response = await this.sendMessage(session, firstMessage, callbacks);
       return { session, response };
     }
 
@@ -196,7 +211,7 @@ export class OpenAIProvider implements LLMProvider {
     this.db.clearConversationHistory(sessionId);
   }
 
-  async sendMessage(session: Session, message: MessageInput): Promise<MessageOutput> {
+  async sendMessage(session: Session, message: MessageInput, callbacks?: ToolCallbacks): Promise<MessageOutput> {
     try {
       // Build user message content
       const userContent = this.buildUserContent(message);
@@ -235,7 +250,7 @@ export class OpenAIProvider implements LLMProvider {
         // Execute each tool call
         for (const toolCall of assistantMessage.tool_calls) {
           if (toolCall.type !== 'function') continue;
-          const result = await this.executeTool(toolCall.function.name, toolCall.function.arguments);
+          const result = await this.executeTool(toolCall.function.name, toolCall.function.arguments, callbacks);
 
           // Extract GIF URLs from gif_search results
           if (toolCall.function.name === 'gif_search') {
@@ -361,7 +376,7 @@ export class OpenAIProvider implements LLMProvider {
     });
   }
 
-  private async executeTool(name: string, argsJson: string): Promise<unknown> {
+  private async executeTool(name: string, argsJson: string, callbacks?: ToolCallbacks): Promise<unknown> {
     const args = JSON.parse(argsJson);
     switch (name) {
       case 'telegram_history':
@@ -378,6 +393,12 @@ export class OpenAIProvider implements LLMProvider {
         return handleWebFetch(args);
       case 'web_search':
         return handleWebSearch(this.tavilyApiKey, args);
+      case 'send_message':
+        if (callbacks?.onSendMessage) {
+          await callbacks.onSendMessage(args.text as string);
+          return { success: true };
+        }
+        return { error: 'send_message callback not available' };
       default:
         return { error: `Unknown tool: ${name}` };
     }

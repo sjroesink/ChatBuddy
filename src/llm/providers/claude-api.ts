@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'crypto';
-import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError } from '../provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, CreateSessionResult, LLMError, ToolCallbacks } from '../provider.js';
 import { Database } from '../../db/database.js';
 import { handleTelegramHistory } from '../../tools/telegram-history.js';
 import { handleAdminManagement } from '../../tools/admin-management.js';
@@ -114,6 +114,18 @@ const TOOL_DEFINITIONS: Anthropic.Tool[] = [
       required: ['query'],
     },
   },
+  {
+    name: 'send_message',
+    description: 'Send a message to the Telegram chat immediately. Use this to send progress updates, break long responses into multiple messages, or communicate with the user while performing other tasks.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'The message text (HTML formatted)' },
+        chat_id: { type: 'number', description: 'Telegram chat ID (auto-injected)' },
+      },
+      required: ['text', 'chat_id'],
+    },
+  },
 ];
 
 export class ClaudeAPIProvider implements LLMProvider {
@@ -135,13 +147,13 @@ export class ClaudeAPIProvider implements LLMProvider {
     this.tavilyApiKey = config.tavilyApiKey;
   }
 
-  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult> {
+  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput, callbacks?: ToolCallbacks): Promise<CreateSessionResult> {
     const sessionId = randomUUID();
     this.db.addConversationMessage(sessionId, 'system', systemPrompt);
     const session: Session = { id: sessionId, chatId, provider: 'claude-api' };
 
     if (firstMessage) {
-      const response = await this.sendMessage(session, firstMessage);
+      const response = await this.sendMessage(session, firstMessage, callbacks);
       return { session, response };
     }
     return { session };
@@ -159,7 +171,7 @@ export class ClaudeAPIProvider implements LLMProvider {
     this.db.clearConversationHistory(sessionId);
   }
 
-  async sendMessage(session: Session, message: MessageInput): Promise<MessageOutput> {
+  async sendMessage(session: Session, message: MessageInput, callbacks?: ToolCallbacks): Promise<MessageOutput> {
     try {
       // Build and store user message
       const userContent = this.buildUserContent(message);
@@ -189,7 +201,7 @@ export class ClaudeAPIProvider implements LLMProvider {
         const toolResults: Anthropic.ToolResultBlockParam[] = [];
         for (const block of response.content) {
           if (block.type === 'tool_use') {
-            const result = await this.executeTool(block.name, block.input);
+            const result = await this.executeTool(block.name, block.input, callbacks);
 
             // Extract GIF URLs from gif_search results
             if (block.name === 'gif_search') {
@@ -394,7 +406,7 @@ export class ClaudeAPIProvider implements LLMProvider {
     });
   }
 
-  private async executeTool(name: string, input: unknown): Promise<unknown> {
+  private async executeTool(name: string, input: unknown, callbacks?: ToolCallbacks): Promise<unknown> {
     const args = input as Record<string, unknown>;
     switch (name) {
       case 'telegram_history':
@@ -411,6 +423,12 @@ export class ClaudeAPIProvider implements LLMProvider {
         return handleWebFetch(args as any);
       case 'web_search':
         return handleWebSearch(this.tavilyApiKey, args as any);
+      case 'send_message':
+        if (callbacks?.onSendMessage) {
+          await callbacks.onSendMessage(args.text as string);
+          return { success: true };
+        }
+        return { error: 'send_message callback not available' };
       default:
         return { error: `Unknown tool: ${name}` };
     }

@@ -2,7 +2,7 @@ import { Bot, Context, InputFile, InlineKeyboard } from 'grammy';
 import { Config } from '../config.js';
 import { Database } from '../db/database.js';
 import { SessionManager } from '../llm/session.js';
-import { LLMProvider, LLMError, MessageInput } from '../llm/provider.js';
+import { LLMProvider, LLMError, MessageInput, ToolCallbacks } from '../llm/provider.js';
 import { MessageQueue } from './queue.js';
 import { shouldProcessMessage, RoutingMode } from './router.js';
 import { splitMessage, classifyDocument, transcribeVoice } from './media.js';
@@ -346,6 +346,17 @@ export function createBot(
         }
 
         const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
+        const callbacks: ToolCallbacks = {
+          onSendMessage: async (msgText: string) => {
+            const cleanedText = msgText.replace(/<br\s*\/?>/gi, '\n');
+            const parts = splitMessage(cleanedText);
+            for (const part of parts) {
+              await ctx.reply(part, { parse_mode: 'HTML' }).catch(async () => {
+                await ctx.reply(part);
+              });
+            }
+          },
+        };
         const messageInput: MessageInput = { text };
 
         // Handle photo attachments
@@ -450,8 +461,8 @@ export function createBot(
         // Pass messageInput to getOrCreateSession — if a new session is needed,
         // the provider can handle the first message in the same invocation
         // (avoids double CLI spawn for Claude Code, saving ~2-3 min).
-        const { session, response: createResponse } = await sessionManager.getOrCreateSession(chatId, systemPrompt, messageInput);
-        const response = createResponse || await provider.sendMessage(session, messageInput);
+        const { session, response: createResponse } = await sessionManager.getOrCreateSession(chatId, systemPrompt, messageInput, callbacks);
+        const response = createResponse || await provider.sendMessage(session, messageInput, callbacks);
 
         // Handle empty response in autonomous mode (LLM chose not to respond)
         if (isAutonomous && (!response.text || response.text.trim() === '')) {
@@ -590,6 +601,13 @@ Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelne
 - web_fetch: Haal de inhoud van een specifieke URL op. Gebruik dit ALTIJD EERST wanneer iemand een link deelt (Reddit, nieuws, YouTube, etc.). Als web_fetch faalt, val dan terug op web_search.
 - web_search: Zoek op het internet naar informatie. Gebruik dit voor vragen over actueel nieuws, recente feiten, of als web_fetch faalt.
 Zeg NOOIT dat je geen toegang hebt tot het internet.`);
+  parts.push(`Je hebt een send_message tool waarmee je berichten direct naar de chat kunt sturen, nog voordat je klaar bent met je volledige antwoord. Gebruik dit om:
+- Tussentijdse updates te geven als iets even duurt (bijv. "Even opzoeken...")
+- Lange antwoorden op te splitsen in meerdere berichten, net als een echt persoon
+- Te communiceren terwijl je andere tools gebruikt
+
+Let op: je gewone antwoordtekst wordt ook nog verstuurd na afloop. Als je alles al via send_message hebt gestuurd, laat je antwoord dan leeg.`);
+
   parts.push('Je hebt een send_keyboard tool, maar gebruik deze ZEER SPAARZAAM. Gebruik het ALLEEN wanneer er een echte, concrete keuze is die je niet in tekst kunt oplossen (bijv. een poll of een configuratiekeuze). Gebruik het NOOIT voor: vervolgvragen, conversatie-opties, "wil je meer weten over X of Y", of om het gesprek te sturen. Gewoon antwoorden in tekst is bijna altijd beter.');
 
   return parts.join('\n\n');

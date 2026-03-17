@@ -31,6 +31,7 @@ async function main() {
           OWNER_USER_ID: String(config.ownerUserId),
           TENOR_API_KEY: config.tenorApiKey || '',
           TAVILY_API_KEY: config.tavilyApiKey || '',
+          TELEGRAM_BOT_TOKEN: config.telegramBotToken,
         },
       },
     },

@@ -164,6 +164,68 @@ server.registerTool(
   },
 );
 
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const MAX_TG_LENGTH = 4096;
+
+function splitText(text: string): string[] {
+  if (text.length <= MAX_TG_LENGTH) return [text];
+  const parts: string[] = [];
+  let remaining = text;
+  while (remaining.length > MAX_TG_LENGTH) {
+    let splitAt = remaining.lastIndexOf('\n', MAX_TG_LENGTH);
+    if (splitAt <= 0) splitAt = remaining.lastIndexOf(' ', MAX_TG_LENGTH);
+    if (splitAt <= 0) splitAt = MAX_TG_LENGTH;
+    parts.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).trimStart();
+  }
+  if (remaining) parts.push(remaining);
+  return parts;
+}
+
+async function sendTelegramMessage(chatId: number, text: string): Promise<void> {
+  if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN not configured');
+  const parts = splitText(text.replace(/<br\s*\/?>/gi, '\n'));
+  for (const part of parts) {
+    const body: Record<string, unknown> = { chat_id: chatId, text: part, parse_mode: 'HTML' };
+    let res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    // Fallback: retry without parse_mode if HTML fails
+    if (!res.ok) {
+      delete body.parse_mode;
+      res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Telegram sendMessage failed: ${err}`);
+    }
+  }
+}
+
+server.registerTool(
+  'send_message',
+  {
+    title: 'Send Message',
+    description: 'Send a message to the Telegram chat immediately. Use this to send progress updates, break long responses into multiple messages, or communicate with the user while performing other tasks.',
+    inputSchema: z.object({
+      chat_id: z.number().describe('Telegram chat ID'),
+      text: z.string().describe('The message text (HTML formatted)'),
+    }),
+  },
+  async (params) => {
+    await sendTelegramMessage(params.chat_id, params.text);
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ success: true }) }],
+    };
+  },
+);
+
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

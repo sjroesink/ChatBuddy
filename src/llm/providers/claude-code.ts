@@ -1,5 +1,5 @@
 import { spawn } from 'child_process';
-import { LLMProvider, Session, MessageInput, MessageOutput, MediaAttachment, CreateSessionResult, LLMError } from '../provider.js';
+import { LLMProvider, Session, MessageInput, MessageOutput, MediaAttachment, CreateSessionResult, LLMError, ToolCallbacks } from '../provider.js';
 
 export interface ClaudeCodeConfig {
   model?: string;
@@ -14,7 +14,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.config = config;
   }
 
-  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult> {
+  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput, _callbacks?: ToolCallbacks): Promise<CreateSessionResult> {
     const args = this.buildBaseArgs();
     if (systemPrompt) {
       // Replace newlines with spaces — cmd.exe on Windows breaks on multiline args
@@ -59,7 +59,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     // Claude Code sessions are managed by the CLI; nothing to clean up
   }
 
-  async sendMessage(session: Session, message: MessageInput): Promise<MessageOutput> {
+  async sendMessage(session: Session, message: MessageInput, _callbacks?: ToolCallbacks): Promise<MessageOutput> {
     const prompt = this.buildPrompt(message);
     const args = this.buildBaseArgs();
     args.push('-p', prompt);

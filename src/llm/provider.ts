@@ -28,6 +28,12 @@ export interface MessageOutput {
   toolResults?: ToolResult[];
 }
 
+export type SendMessageCallback = (text: string) => Promise<void>;
+
+export interface ToolCallbacks {
+  onSendMessage?: SendMessageCallback;
+}
+
 export class LLMError extends Error {
   constructor(message: string, public readonly cause?: Error) {
     super(message);
@@ -41,10 +47,10 @@ export interface CreateSessionResult {
 }
 
 export interface LLMProvider {
-  createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput): Promise<CreateSessionResult>;
+  createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput, callbacks?: ToolCallbacks): Promise<CreateSessionResult>;
   resumeSession(sessionId: string): Promise<Session>;
   destroySession(sessionId: string): Promise<void>;
-  sendMessage(session: Session, message: MessageInput): Promise<MessageOutput>;
+  sendMessage(session: Session, message: MessageInput, callbacks?: ToolCallbacks): Promise<MessageOutput>;
   supportsTools(): boolean;
   supportsMedia(): boolean;
   supportsResume(): boolean;
