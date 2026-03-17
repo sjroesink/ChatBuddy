@@ -314,10 +314,15 @@ export function createBot(
     const replyContext = formatReplyContext(ctx);
     const fullText = replyContext ? `${replyContext}\n${messageText}` : messageText;
 
-    await processMessage(ctx, chatId, fullText, false);
+    // Detect if this is a mention (vs a /command) in commands_only mode
+    const isMention = routingMode === 'commands_only' && !isPrivate
+      && !messageText.startsWith('/')
+      && messageText.toLowerCase().includes(`@${botUsername.toLowerCase()}`);
+
+    await processMessage(ctx, chatId, fullText, false, undefined, isMention);
   });
 
-  async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean, extraPhotoFileIds?: string[]): Promise<void> {
+  async function processMessage(ctx: Context, chatId: number, text: string, isAutonomous: boolean, extraPhotoFileIds?: string[], isMention?: boolean): Promise<void> {
     try {
       await queue.enqueue(chatId, async () => {
         await ctx.replyWithChatAction('typing');
@@ -326,6 +331,19 @@ export function createBot(
         }, 5000);
 
         try {
+
+        // When triggered by a mention in commands_only mode, prepend recent conversation context
+        if (isMention) {
+          const recentMessages = db.getRecentMessages(chatId, 20);
+          const contextLines = recentMessages.reverse().map(m => {
+            const name = m.username ? `@${m.username}` : m.display_name || 'Unknown';
+            return `${name}: ${m.text || '[media]'}`;
+          });
+          if (contextLines.length > 0) {
+            const contextBlock = `[Recente berichten in dit gesprek voor context:]\n${contextLines.join('\n')}\n\n[Bericht gericht aan jou:]`;
+            text = `${contextBlock}\n${text}`;
+          }
+        }
 
         const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
         const messageInput: MessageInput = { text };
@@ -530,6 +548,17 @@ function buildSystemPrompt(db: Database, chatId: number, botUsername: string): s
 - <tg-spoiler>spoiler</tg-spoiler> voor spoilers
 BELANGRIJK: Gebruik GEEN <br> tags — gebruik gewoon newlines voor regelovergangen. Telegram ondersteunt geen <br>.
 Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altijd de HTML-tags hierboven. Tekst zonder tags wordt gewoon als platte tekst weergegeven. Zorg dat je HTML correct is — open tags moeten altijd gesloten worden. Escape speciale tekens in gewone tekst: gebruik &amp; voor &, &lt; voor <, &gt; voor >.`);
+
+  if (chat?.routing_mode === 'commands_only') {
+    parts.push(`Je bent in commands_only modus. Je wordt alleen aangesproken via /commands of @mentions.
+
+Als je getagt wordt via @mention:
+1. Je ontvangt automatisch de laatste berichten als context. Lees deze EERST om te begrijpen waarom je getagt bent.
+2. Als de context niet genoeg is om de situatie te begrijpen (bijv. het gesprek verwijst naar iets dat verder terug ligt), gebruik dan PROACTIEF de telegram_history tool om meer berichten op te halen. Blijf teruglezen tot je voldoende context hebt.
+3. Beantwoord dan pas de vraag/het verzoek vanuit het perspectief van het lopende gesprek.
+
+Je doel is om je te gedragen als een groepslid dat even terugscrolt om te snappen wat er besproken werd voordat het reageert.`);
+  }
 
   if (chat?.routing_mode === 'autonomous') {
     parts.push(`Je bent in autonome modus in een groepschat. Je ontvangt ALLE berichten tussen de deelnemers.
