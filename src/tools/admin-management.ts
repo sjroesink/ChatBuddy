@@ -11,7 +11,8 @@ export interface AdminManagementParams {
 export interface AdminManagementResult {
   success: boolean;
   message: string;
-  admins?: Array<{ user_id: number; username?: string }>;
+  admins?: Array<{ user_id: number; username?: string; role?: string }>;
+  requesting_user_is_admin?: boolean;
 }
 
 export function handleAdminManagement(
@@ -45,13 +46,24 @@ export function handleAdminManagement(
 
     case 'list': {
       const admins = adminService.listAdmins(params.chat_id);
+      const ownerId = adminService.getOwnerId();
+      const ownerUsername = adminService.resolveUsernameByUserId(params.chat_id, ownerId);
+      const adminList: Array<{ user_id: number; username?: string; role?: string }> = [
+        { user_id: ownerId, username: ownerUsername, role: 'owner' },
+        ...admins
+          .filter(a => a.user_id !== ownerId)
+          .map((a) => ({
+            user_id: a.user_id,
+            username: adminService.resolveUsernameByUserId(a.chat_id, a.user_id),
+            role: 'admin',
+          })),
+      ];
+      const isRequesterAdmin = adminService.isAdmin(params.chat_id, params.requesting_user_id);
       return {
         success: true,
-        message: admins.length > 0 ? `${admins.length} admin(s) gevonden.` : 'Geen admins geconfigureerd (alleen de owner).',
-        admins: admins.map((a) => ({
-          user_id: a.user_id,
-          username: adminService.resolveUsernameByUserId(a.chat_id, a.user_id),
-        })),
+        message: `${adminList.length} admin(s) gevonden.`,
+        admins: adminList,
+        requesting_user_is_admin: isRequesterAdmin,
       };
     }
 

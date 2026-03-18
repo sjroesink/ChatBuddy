@@ -67,6 +67,10 @@ export class AdminService {
     return this.db.getAdmins(chatId);
   }
 
+  getOwnerId(): number {
+    return this.ownerId;
+  }
+
   resolveUsernameByUserId(chatId: number, userId: number): string | undefined {
     return this.db.resolveUsernameByUserId(chatId, userId);
   }
