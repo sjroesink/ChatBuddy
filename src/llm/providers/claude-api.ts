@@ -408,6 +408,11 @@ export class ClaudeAPIProvider implements LLMProvider {
 
   private async executeTool(name: string, input: unknown, callbacks?: ToolCallbacks): Promise<unknown> {
     const args = input as Record<string, unknown>;
+    // Override chat_id and requesting_user_id with server-side values
+    if (callbacks) {
+      args.chat_id = callbacks.chatId;
+      args.requesting_user_id = callbacks.userId;
+    }
     switch (name) {
       case 'telegram_history':
         return handleTelegramHistory(this.db, args as any);

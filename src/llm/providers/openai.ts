@@ -378,6 +378,11 @@ export class OpenAIProvider implements LLMProvider {
 
   private async executeTool(name: string, argsJson: string, callbacks?: ToolCallbacks): Promise<unknown> {
     const args = JSON.parse(argsJson);
+    // Override chat_id and requesting_user_id with server-side values
+    if (callbacks) {
+      args.chat_id = callbacks.chatId;
+      args.requesting_user_id = callbacks.userId;
+    }
     switch (name) {
       case 'telegram_history':
         return handleTelegramHistory(this.db, args);

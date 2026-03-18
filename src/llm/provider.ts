@@ -31,6 +31,8 @@ export interface MessageOutput {
 export type SendMessageCallback = (text: string) => Promise<void>;
 
 export interface ToolCallbacks {
+  chatId: number;
+  userId: number;
   onSendMessage?: SendMessageCallback;
 }
 

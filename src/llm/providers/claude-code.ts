@@ -14,7 +14,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     this.config = config;
   }
 
-  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput, _callbacks?: ToolCallbacks): Promise<CreateSessionResult> {
+  async createSession(chatId: string, systemPrompt: string, firstMessage?: MessageInput, callbacks?: ToolCallbacks): Promise<CreateSessionResult> {
     const args = this.buildBaseArgs();
     if (systemPrompt) {
       // Replace newlines with spaces — cmd.exe on Windows breaks on multiline args
@@ -24,7 +24,7 @@ export class ClaudeCodeProvider implements LLMProvider {
     // If a first message is provided, send it during session creation
     // to avoid a second CLI invocation (saves ~2-3 min on cold start).
     const prompt = firstMessage
-      ? this.buildPrompt(firstMessage)
+      ? this.buildPrompt(firstMessage, callbacks)
       : 'Je bent verbonden met een Telegram chat. Klaar om te helpen.';
     args.push('-p', prompt);
     args.push('--output-format', 'json');
@@ -59,8 +59,8 @@ export class ClaudeCodeProvider implements LLMProvider {
     // Claude Code sessions are managed by the CLI; nothing to clean up
   }
 
-  async sendMessage(session: Session, message: MessageInput, _callbacks?: ToolCallbacks): Promise<MessageOutput> {
-    const prompt = this.buildPrompt(message);
+  async sendMessage(session: Session, message: MessageInput, callbacks?: ToolCallbacks): Promise<MessageOutput> {
+    const prompt = this.buildPrompt(message, callbacks);
     const args = this.buildBaseArgs();
     args.push('-p', prompt);
     args.push('--resume', session.id);
@@ -96,8 +96,12 @@ export class ClaudeCodeProvider implements LLMProvider {
     return args;
   }
 
-  private buildPrompt(message: MessageInput): string {
+  private buildPrompt(message: MessageInput, callbacks?: ToolCallbacks): string {
     const parts: string[] = [];
+    // Inject server-side metadata so MCP tools get the correct chat_id and user_id
+    if (callbacks) {
+      parts.push(`[chat_id=${callbacks.chatId} user_id=${callbacks.userId}]`);
+    }
     if (message.context) {
       parts.push(`[Context] ${message.context}`);
     }

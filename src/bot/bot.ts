@@ -348,9 +348,9 @@ export function createBot(
 
         const userId = ctx.from?.id ?? 0;
         const systemPrompt = buildSystemPrompt(db, chatId, bot.botInfo.username);
-        // Prefix metadata so the LLM always knows the correct chat_id and user_id for tool calls
-        text = `[chat_id=${chatId} user_id=${userId}]\n${text}`;
         const callbacks: ToolCallbacks = {
+          chatId,
+          userId,
           onSendMessage: async (msgText: string) => {
             const cleanedText = msgText.replace(/<br\s*\/?>/gi, '\n');
             const parts = splitMessage(cleanedText);
