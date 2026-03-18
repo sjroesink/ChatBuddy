@@ -45,3 +45,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Trigger deploy webhook
+        run: |
+          curl -v --fail-with-body -X POST "https://deploy.roes.ink/hooks/deploy" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${{ secrets.DEPLOY_WEBHOOK_SECRET }}" \
+            -d '{"stack": "telegram-buddy"}'
