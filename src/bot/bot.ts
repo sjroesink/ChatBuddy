@@ -352,7 +352,7 @@ export function createBot(
           chatId,
           userId,
           onSendMessage: async (msgText: string) => {
-            const cleanedText = msgText.replace(/<br\s*\/?>/gi, '\n');
+            const cleanedText = markdownToHtml(msgText.replace(/<br\s*\/?>/gi, '\n'));
             const parts = splitMessage(cleanedText);
             for (const part of parts) {
               await ctx.reply(part, { parse_mode: 'HTML' }).catch(async () => {
@@ -475,8 +475,8 @@ export function createBot(
 
         // Send text response
         if (response.text) {
-          // Replace <br> tags with newlines — Telegram doesn't support <br>
-          const cleanedText = response.text.replace(/<br\s*\/?>/gi, '\n');
+          // Clean up response: <br> to newlines, Markdown to HTML fallback
+          const cleanedText = markdownToHtml(response.text.replace(/<br\s*\/?>/gi, '\n'));
           const parts = splitMessage(cleanedText);
           for (const part of parts) {
             await ctx.reply(part, { parse_mode: 'HTML' }).catch(async () => {
@@ -554,15 +554,20 @@ function buildSystemPrompt(db: Database, chatId: number, botUsername: string): s
 
   parts.push('Je zit in een Telegram chat die mogelijk langer teruggaat dan je huidige sessie. Als je context nodig hebt van eerdere berichten, gebruik dan de telegram_history tool om gericht te zoeken in de chatgeschiedenis.');
 
-  parts.push(`FORMATTING: Je berichten worden weergegeven in Telegram met HTML parse_mode. Gebruik HTML-tags voor opmaak:
-- <b>vet</b>, <i>cursief</i>, <u>onderstreept</u>, <s>doorgestreept</s>
-- <code>inline code</code> voor korte code
-- <pre>codeblok</pre> voor meerregelige code (met optioneel <pre><code class="language-python">...</code></pre> voor syntax highlighting)
-- <a href="url">linktekst</a> voor links
-- <blockquote>citaat</blockquote> voor citaten
-- <tg-spoiler>spoiler</tg-spoiler> voor spoilers
-BELANGRIJK: Gebruik GEEN <br> tags — gebruik gewoon newlines voor regelovergangen. Telegram ondersteunt geen <br>.
-Gebruik GEEN Markdown-opmaak (geen *, **, \`, \`\`\`, #, -, etc.). Gebruik altijd de HTML-tags hierboven. Tekst zonder tags wordt gewoon als platte tekst weergegeven. Zorg dat je HTML correct is — open tags moeten altijd gesloten worden. Escape speciale tekens in gewone tekst: gebruik &amp; voor &, &lt; voor <, &gt; voor >.`);
+  parts.push(`FORMATTING — STRIKT HTML, NOOIT MARKDOWN:
+Je output wordt letterlijk als Telegram HTML weergegeven. Markdown-syntax zoals *, **, \`, \`\`\`, #, - wordt NIET omgezet — het verschijnt als platte tekst met sterretjes en backticks zichtbaar voor de gebruiker.
+
+Toegestane HTML-tags:
+<b>vet</b>, <i>cursief</i>, <u>onderstreept</u>, <s>doorgestreept</s>, <code>code</code>, <pre>codeblok</pre>, <a href="url">link</a>, <blockquote>citaat</blockquote>, <tg-spoiler>spoiler</tg-spoiler>
+
+VERBODEN (wordt letterlijk getoond):
+- **vet** of *cursief* → gebruik <b> en <i>
+- \`code\` of \`\`\`codeblok\`\`\` → gebruik <code> en <pre>
+- # kopjes → geen equivalent, gebruik <b> als je wilt benadrukken
+- Markdown lijsten (- of *) → gebruik gewoon tekst of nummers
+- <br> tags → gebruik newlines
+
+Gebruik &amp; voor &, &lt; voor <, &gt; voor > in gewone tekst.`);
 
   if (chat?.routing_mode === 'commands_only') {
     parts.push(`Je bent in commands_only modus. Je wordt alleen aangesproken via /commands of @mentions.
@@ -656,6 +661,31 @@ function getKnownUsers(db: Database, chatId: number): Array<{ username: string |
     }
   }
   return Array.from(seen.values());
+}
+
+/**
+ * Convert common Markdown patterns to Telegram HTML as a fallback
+ * when the LLM ignores the HTML-only instruction.
+ * Only converts patterns that are clearly Markdown (not already inside HTML tags).
+ */
+function markdownToHtml(text: string): string {
+  // Skip conversion if text already contains HTML tags (likely already formatted)
+  const hasHtmlTags = /<(b|i|u|s|code|pre|a |blockquote|tg-spoiler)[\s>]/i.test(text);
+
+  // Convert ```codeblocks``` to <pre>
+  text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, _lang, code) => `<pre>${code.trim()}</pre>`);
+  // Convert `inline code` to <code> (but not inside <pre>)
+  text = text.replace(/(?<!<pre>[\s\S]*)`([^`\n]+)`(?![\s\S]*<\/pre>)/g, '<code>$1</code>');
+  // Convert **bold** to <b> (only if no HTML bold already present)
+  if (!hasHtmlTags || !/<b[\s>]/.test(text)) {
+    text = text.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  }
+  // Convert *italic* to <i> (but not ** which is bold, and not inside <b> we just created)
+  if (!hasHtmlTags || !/<i[\s>]/.test(text)) {
+    text = text.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<i>$1</i>');
+  }
+
+  return text;
 }
 
 function escapeHtml(text: string): string {
