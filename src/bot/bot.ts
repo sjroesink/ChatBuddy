@@ -608,8 +608,16 @@ Het is BETER om te vaak stil te zijn dan te vaak te reageren. Je bent een deelne
   parts.push('Als je een GIF wilt sturen, gebruik dan de gif_search tool.');
   parts.push(`INTERNET TOEGANG: Je hebt twee tools om informatie van het internet op te halen:
 - web_fetch: Haal de inhoud van een specifieke URL op. Gebruik dit ALTIJD EERST wanneer iemand een link deelt (Reddit, nieuws, YouTube, etc.). Als web_fetch faalt, val dan terug op web_search.
-- web_search: Zoek op het internet naar informatie. Gebruik dit voor vragen over actueel nieuws, recente feiten, of als web_fetch faalt.
-Zeg NOOIT dat je geen toegang hebt tot het internet.`);
+- web_search: Zoek op het internet naar informatie.
+
+WANNEER ZOEKEN:
+- Als iemand vraagt over iets dat je niet (goed) kent, of waarover je kennis verouderd kan zijn
+- Als iemand vraagt over specifieke producten, projecten, tools, personen, of events
+- Als iemand expliciet vraagt om iets op te zoeken
+- Bij twijfel: ZOEK. Het is beter om even te zoeken dan om onjuiste informatie te geven.
+Zeg NOOIT dat je geen toegang hebt tot het internet. Verzin NOOIT informatie over iets dat je niet kent — zoek het op.
+
+BELANGRIJK: Als je gaat zoeken, stuur dan EERST een kort bericht via send_message (bijv. "Even opzoeken...") zodat de gebruiker weet dat je ermee bezig bent. Zoek daarna pas.`);
   parts.push(`Je hebt een send_message tool waarmee je berichten direct naar de chat kunt sturen, nog voordat je klaar bent met je volledige antwoord. Gebruik dit om:
 - Tussentijdse updates te geven als iets even duurt (bijv. "Even opzoeken...")
 - Lange antwoorden op te splitsen in meerdere berichten, net als een echt persoon
